@@ -53,6 +53,7 @@ uvicorn app.main:app --reload
 
 ## API Endpoints to Implement
 
+### Core Endpoints
 - `GET /health`
 - `GET /keys/public`
 - `POST /v1/verify_receipt`
@@ -60,8 +61,13 @@ uvicorn app.main:app --reload
 - `POST /v1/redeem`
 - `GET /v1/bloom`
 - `POST /v1/sync_offline`
-- `POST /v1/create_voucher` (admin)
-- `POST /v1/redeem_voucher`
+
+### Anonymous Prepaid / Voucher Endpoints (BLS-style)
+- `POST /v1/create_voucher` (admin/staff) — create prepaid voucher codes
+- `POST /v1/redeem_voucher` — redeem voucher + blind-sign token
+- `GET /v1/voucher_balance` (optional) — check prepaid balance
+
+**Context**: These endpoints simulate BLS's new anonymous prepaid card system (Dec 2025 rollout). See [BLS_ALIGNMENT.md](../BLS_ALIGNMENT.md) for details.
 
 ## Dependencies
 

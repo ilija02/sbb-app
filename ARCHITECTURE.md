@@ -1,16 +1,82 @@
-# Full Architecture Spec — Anonymous Ticketing POC (Docker Compose, Laptop-as-Scanner, PWA wallet)
+# Anonymous Ticketing System — Complete Architecture Specification
+
+**Version**: 1.0  
+**Date**: November 22, 2025  
+**Context**: LauzHack 2025 / BLS Cashless Transition (Dec 2025)
+
+---
+
+## Executive Summary
+
+This document specifies a **Proof-of-Concept (POC)** for an anonymous ticketing system that addresses real-world requirements from Swiss public transport operators (BLS, A-Welle/Aargau) transitioning to cashless operations while maintaining:
+
+✅ **Complete passenger anonymity** (no PII visible to conductors)  
+✅ **Legal compliance** (constitutional cash payment via prepaid cards)  
+✅ **Anti-discrimination** (accessible to elderly, children, non-digital users)  
+✅ **Anti-sharing** (rotating QR codes prevent screenshot fraud)  
+✅ **Offline operation** (validators work without network)  
+✅ **Cost efficiency** (no cash handling in ticket machines)
+
+### Real-World Context (2025)
+
+**BLS & A-Welle cashless transition** (Dec 2025 - Mid 2026):
+- Ticket machines no longer accept cash (cost savings: CHF 400k/year for BLS)
+- **Controversy**: Public outcry about discrimination, constitutional challenges threatened
+- **Solution**: Anonymous prepaid cards purchasable with cash at counters
+- This POC implements exactly this solution using cryptographic blind signatures
+
+### Core Technologies
+
+- **Cryptography**: RSA blind signatures (Chaum-style) for unlinkable tokens
+- **Anti-sharing**: Time-based rotating proofs (HMAC) — QR codes refresh every 30-60s
+- **Frontend**: React PWA (wallet + validator) with IndexedDB + service workers
+- **Backend**: FastAPI with PostgreSQL, Redis, Bloom filters
+- **Deployment**: Docker Compose for full-stack local development
+
+### Key Innovations
+
+1. **Blind signatures** — Issuer never sees raw token, conductor never sees purchase details
+2. **Rotating cryptographic proofs (RCP)** — Prevents screenshot-based ticket sharing
+3. **Prepaid voucher system** — Legal/social solution to cashless discrimination concerns
+4. **Offline validator** — Bloom filters + local signature verification + sync reconciliation
+
+---
+
+## Table of Contents
+
+1. [Goals (Requirements)](#goals-requirements)
+2. [High-Level Components](#high-level-components)
+3. [Crypto Approach (Blind Signatures)](#crypto-approach-core-idea)
+4. [Anti-Sharing Mechanism (Rotating Proofs)](#anti-sharing-mechanism-for-day-tickets-rotating-cryptographic-proofs)
+5. [Data Model (Database Schema)](#data-model-db-tables)
+6. [API Specification](#api-specification-httpjson)
+7. [Validator Behavior](#validator-behavior-laptop-scanner-pwa)
+8. [Wallet Behavior (PWA)](#wallet-pwa-behavior-passenger)
+9. [Payment Approaches](#payment-approaches-for-poc)
+10. [Offline Strategy](#offline-strategy--double-spend-detection)
+11. [Docker Compose](#docker-compose-poc-example)
+12. [Repository Layout](#repos--file-layout-recommended)
+13. [API Examples](#api-contract-examples-curl)
+14. [Developer Task Split](#developer-split-two-developers--ownership--tasks)
+15. [Testing Plan](#testing-plan-poc)
+16. [Security & Privacy](#security--privacy-considerations)
+17. [Real-World Alignment (BLS)](#real-world-alignment-bls-cashless-transition-2025)
+18. [Extras & Extensions](#extras--nice-to-haves-optional-poc-extensions)
+19. [Deliverables Checklist](#deliverable-checklist-what-to-push-to-repo-right-away)
+20. [Sequence Diagrams](#example-minimal-sequence-diagrams-ascii)
 
 ---
 
 ## Goals (requirements)
 
 * **Conductor / inspector must not see any personal identifier (PID).**
-* **Support card payments** (mediated) and cash/voucher options for privacy.
+* **Support card payments** (mediated) and **anonymous prepaid cards** (BLS-style) for privacy and legal compliance.
 * **No physical gates** — enforce single-use via onboard validators + reconciliation.
 * **Laptop acts as scanner/validator** (POC) using webcam-based QR scanning or USB NFC reader (optional).
 * **No native mobile app** — use a PWA as the passenger wallet (works in phone browser or laptop).
 * **Two devs can implement** the prototype; tasks split clearly.
 * Use **Docker Compose** for local deployment of services.
+* **Address cashless controversy** — prepaid system must solve discrimination concerns.
 
 ---
 
@@ -252,10 +318,15 @@ Use **FastAPI** (Python) or similar. All endpoints authenticated by API keys for
   - Request: `{ "validator_id": "...", "accepted_tokens": [ {"token_hash": "...", "t": "...", "local_id": "..." } ] }`
   - Response: summary of conflicts/detected duplicates.
 
-## Voucher service
+## Voucher / Prepaid Card service
 
-* `POST /v1/create_voucher` (admin) — create prepaid voucher codes.
-* `POST /v1/redeem_voucher` — kiosk redeems voucher to produce blind-signing.
+* `POST /v1/create_voucher` (admin/staff) — create prepaid voucher codes with balance (simulates BLS prepaid card purchase at counter).
+  - Request: `{ "balance_cents": 5000, "currency": "CHF", "staff_id": "..." }`
+  - Response: `{ "voucher_code": "ABC-123-XYZ", "balance": 5000, "expires": "2026-12-31" }`
+* `POST /v1/redeem_voucher` — kiosk/wallet redeems voucher to produce blind-signing (simulates anonymous prepaid card payment).
+  - Request: `{ "voucher_code": "ABC-123-XYZ", "amount_cents": 500, "blinded_token": "<base64>" }`
+  - Response: `{ "signed_blinded": "<base64>", "remaining_balance": 4500 }`
+* `GET /v1/voucher_balance` — check prepaid voucher balance (optional for POC).
 
 ## Keys
 
@@ -319,10 +390,21 @@ Use **FastAPI** (Python) or similar. All endpoints authenticated by API keys for
 # Payment approaches for POC
 
 * **Card payments (mediated)**: Kiosk collects card via local terminal. Kiosk receives `provider_receipt_id` from PaymentAdapter and sends it to Token Issuer with `B(T)`. Token Issuer verifies via PaymentAdapter API and signs blinded token.
+* **Anonymous prepaid card (BLS-style)**: Passenger purchases a reloadable prepaid card at BLS sales counter with cash. Card is loaded with credit and can be used anonymously at ticket machines. In our POC, this is equivalent to voucher system:
+  - Admin/sales staff creates prepaid voucher codes with balance
+  - Passenger uses prepaid code at kiosk to purchase tokens
+  - Kiosk redeems voucher code → issues blind-signed token
+  - No PII collected (completely anonymous purchase path)
 * **Voucher / scratch codes**: Admin or cash partner creates voucher codes; user redeems at kiosk to receive `Sig(T)`.
 * **Test mode**: For POC, PaymentAdapter is a stub that returns `verified` for receipts posted to `/test/verify`.
 
-**Important**: Token Issuer should never receive raw PAN or cardholder name — only `provider_receipt_id`. Payment adapter & kiosk manage card details and keep them out of ticketing DB.
+**Real-world mapping (BLS scenario)**:
+- **Cashless machines** → Your kiosk component (accepts cards + prepaid codes)
+- **Prepaid card purchase at counter** → `/v1/create_voucher` (staff generates code, passenger pays cash)
+- **Anonymous ticket purchase** → Passenger uses prepaid code → blind signature issuance
+- **Validator on train** → Your laptop-based validator PWA
+
+**Important**: Token Issuer should never receive raw PAN or cardholder name — only `provider_receipt_id` or `voucher_code`. Payment adapter & kiosk manage card details and keep them out of ticketing DB.
 
 ---
 
@@ -564,7 +646,7 @@ I split tasks into **Developer A (Backend & Infra)** and **Developer B (Frontend
 * **Replay prevention**: Use token expiry and optional challenge-response with per-token secrets stored only on wallet.
 * **Audit**: write `audit_logs` for all issuance and redemption events.
 * **Rate limiting**: limit issuance per `receipt_id` to prevent bulk issuance.
-* **Legal**: card transactions will be logged by banks. Communicate this to stakeholders.
+* **Legal**: card transactions will be logged by banks. Communicate this to stakeholders. See "Real-World Alignment" section for legal/social considerations in Swiss context.
 
 ---
 
@@ -614,12 +696,155 @@ TokenIssuer: insert earliest wins; flag duplicates
 
 ---
 
+# Real-World Alignment: BLS Cashless Transition (2025)
+
+## Context: Swiss Public Transport Cashless Controversy
+
+### Timeline & Key Events
+
+**November 2025** — BLS announces:
+- Cashless ticket machine rollout (Dec 2025 - Mid 2026)
+- Cost savings: CHF 400k/year (no cash handling)
+- Anonymous prepaid cards available at sales counters
+- Cantonal support: Bern backs the transition
+
+**September 2025** — A-Welle (Aargau) controversy:
+- 20min article: "Diskriminierung: Billettautomaten nehmen bald kein Bargeld mehr"
+- 386 public comments (major engagement)
+- Constitutional challenge threatened by cash initiative advocates
+
+### Legal & Social Concerns Raised
+
+#### 1. Discrimination Accusations
+- **Elderly people** without smartphones or bank cards
+- **Children** without payment methods
+- **Privacy-conscious travelers** who prefer cash
+- **Socially disadvantaged** without bank accounts
+
+**Public reactions** (from 20min article):
+> "What about older people? This is nonsense." — News-Scout Reto Buchs
+>
+> "This is an outrageous infringement and unconstitutional." — News-Scout Pesche
+
+#### 2. Constitutional Challenge
+**Richard Koller** (Freiheitliche Bewegung Schweiz / Cash Initiative):
+> "The abolition of cash at ticket machines is not only antisocial but also unconstitutional. Cash is legal tender in Switzerland — and public transport as state infrastructure must comply with the Federal Constitution."
+
+Threatens **legal action** against state transport operators.
+
+#### 3. Industry Response: Prepaid Card Solution
+
+**BLS & A-Welle official position**:
+> "Prepaid cards can be purchased at sales counters with cash and then used anonymously at ticket machines."
+
+**Christine Neuhaus** (A-Welle CEO):
+> "The prepaid payment card is a sensible solution for children, people without smartphones, and travelers who wish to remain anonymous."
+
+**Key statistics** (A-Welle):
+- 75% of passengers buy tickets digitally
+- Only 18% still use ticket machines
+- Cash usage at machines declining rapidly
+
+### How This POC Addresses Real-World Requirements
+
+| BLS/A-Welle Requirement  | POC Implementation                           | Status |
+| ------------------------ | -------------------------------------------- | ------ |
+| Cashless ticket machines | Payment adapter + card support               | ✅      |
+| Anonymous prepaid option | `/v1/create_voucher` + `/v1/redeem_voucher`  | ✅      |
+| No PII required          | Blind signatures + H(T) storage              | ✅      |
+| Cash acceptance (legal)  | Prepaid cards sold at counters with cash     | ✅      |
+| Elderly accessibility    | Physical prepaid card (no smartphone needed) | ✅      |
+| Privacy protection       | Unlinkable tokens, no purchase history       | ✅      |
+| Anti-discrimination      | Equal access via prepaid system              | ✅      |
+| Cost efficiency          | No cash handling in machines                 | ✅      |
+
+### Technical Equivalence: BLS Prepaid Card ↔ POC Voucher System
+
+```
+BLS Real-World                     POC Implementation
+──────────────────────────────────────────────────────────────
+Physical prepaid card              Voucher code (e.g., "ABC-123-XYZ")
+Purchase at BLS counter with cash  POST /v1/create_voucher (staff endpoint)
+Card balance tracking              vouchers table with balance_cents
+Use card at cashless machine       POST /v1/redeem_voucher (wallet → backend)
+Anonymous ticket issuance          Blind signature returned
+On-train validation                Validator PWA (laptop scanner)
+QR code verification               Signature verification + spent check
+```
+
+### Workflow Mapping: Real-World vs POC
+
+#### Real-World (BLS):
+1. Passenger brings cash to BLS counter
+2. Staff sells prepaid card, loads CHF 50 balance
+3. Passenger uses prepaid card at cashless ticket machine
+4. Machine issues anonymous ticket (no PII collected)
+5. Conductor validates ticket on train (sees only "VALID/INVALID")
+
+#### POC Simulation:
+1. Admin/staff uses `POST /v1/create_voucher` → generates code with balance
+2. Passenger receives voucher code (simulates prepaid card)
+3. Passenger enters code in wallet PWA → sends `POST /v1/redeem_voucher` with blinded token
+4. Backend verifies voucher, deducts amount, returns blind signature
+5. Wallet unblinds → stores anonymous token → displays QR code
+6. Validator scans QR → verifies signature → marks spent
+
+### Why Prepaid/Voucher System is Critical
+
+**Not just a feature** — it's the **legal and social compliance mechanism**:
+
+1. ✅ **Constitutional compliance** — Cash still accepted (at counters, not machines)
+2. ✅ **Discrimination prevention** — Accessible to all passenger groups
+3. ✅ **Digital divide mitigation** — No smartphone/bank account required
+4. ✅ **Privacy rights protection** — Anonymous payment option maintained
+5. ✅ **Cost optimization** — Machines remain cashless (lower maintenance)
+6. ✅ **Legal defensibility** — Documented alternative payment path
+
+### Production Deployment Considerations
+
+If implementing this system in real Swiss public transport:
+
+#### Legal Documentation
+- ✅ Document that cash is accepted (via prepaid card purchase)
+- ✅ Show non-discriminatory access path for all passenger groups
+- ✅ Maintain audit trail of prepaid card issuance
+- ✅ Prepare response to constitutional challenges
+
+#### Accessibility Strategy
+- Clear signage: "No cash at machines? Buy prepaid card at counter"
+- Multiple sales points (not just BLS counters)
+- Partnership with Kiosks, Post offices (under discussion per BLS)
+- Training programs for elderly passengers (BLS collaboration with Pro Senectute)
+- Multilingual instructions at sales counters
+
+#### Monitoring & Compliance
+- Track prepaid card adoption rates
+- Monitor complaints about accessibility
+- Regular audits of alternative payment path availability
+- Prepare for potential legal challenges from cash initiative
+
+### Reference Materials
+
+**Press Releases & Articles**:
+- BLS: "Laufende Erneuerung der BLS-Billettautomaten ab Dezember" (November 2025)
+- 20min: "Diskriminierung: Billettautomaten nehmen bald kein Bargeld mehr" (September 2025)
+- Cash Initiative: "Volksinitiative 'Münz und Noten für immer'" (pending)
+
+**Key Organizations**:
+- BLS AG (Bern-Lötschberg-Simplon railway)
+- A-Welle Tarifverbund (Aargau tariff zone: Olten-Aarau-Baden)
+- Freiheitliche Bewegung Schweiz (FBS) — Cash initiative
+- Pro Senectute — Elderly advocacy organization
+
+---
+
 # Extras / Nice-to-haves (optional POC extensions)
 
 * Add **USB NFC reader support** in validator (Node/Chromium WebUSB) for card-based NFC wallets.
 * Add **PDF / printable QR** generation for single-use tokens (for passengers without phone).
 * Add **analytics dashboard** (aggregate only: #tokens issued, #redeemed) without PID.
 * Add **device attestation** for optional non-anonymous passes.
+* **BLS prepaid card simulation**: Create a simple "card number + PIN" system instead of voucher codes to simulate physical prepaid cards more realistically.
 
 ---
 

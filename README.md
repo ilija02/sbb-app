@@ -1,25 +1,36 @@
 # Anonymous Ticketing POC
 
-This repository contains a Proof-of-Concept (POC) for an anonymous ticketing system where a **laptop acts as the validator/scanner** in the train and passengers use a **PWA wallet** (no native mobile app). The POC uses **RSA blind signatures** for unlinkable tokens and is designed to run locally with **Docker Compose**.
+**Proof-of-Concept** for an anonymous ticketing system addressing real-world Swiss public transport requirements (BLS, A-Welle) with cryptographic privacy guarantees.
 
-## Overview
+## What This Is
 
-- **Conductor/inspector must not see any personal identifier (PID)**
-- **Support card payments** (mediated) and cash/voucher options for privacy
-- **No physical gates** — enforce single-use via onboard validators + reconciliation
-- **Laptop-based validator** using webcam QR scanning
-- **PWA wallet** for passengers (works in phone browser)
-- **Two-developer implementation** with clear task separation
-- **Anti-sharing mechanism** — day tickets use rotating cryptographic proofs (QR codes refresh every 30-60s)
+A complete ticketing system POC where:
+- **Passengers** use a PWA wallet (browser-based, no app download)
+- **Conductors** use a laptop scanner (webcam QR scanning)
+- **Anonymity** is cryptographically guaranteed (blind signatures)
+- **Sharing prevention** via rotating QR codes (refresh every 30-60s)
+- **Cash compliance** via anonymous prepaid voucher system
 
-📖 **[Read the full architecture specification →](./ARCHITECTURE.md)**
+**Context**: Directly implements BLS/A-Welle's cashless transition strategy (Dec 2025 rollout), addressing constitutional concerns and discrimination prevention.
 
-### Key Features
+📖 **[Read Complete Architecture Specification →](./ARCHITECTURE.md)**  
+*Includes: technical design, BLS alignment, legal considerations, implementation guide*
 
-- **RSA Blind Signatures** — unlinkable anonymous tokens (conductor never sees purchase details)
-- **Rotating QR Codes** — prevents ticket sharing via screenshot (dynamic proofs change every 30-60s)
-- **Offline-capable validator** — works without network using Bloom filters
-- **No PII exposure** — conductor only sees "VALID" or "INVALID" status
+## Key Features
+
+✅ **Complete anonymity** — conductor never sees PII  
+✅ **Anti-screenshot sharing** — rotating cryptographic proofs  
+✅ **Offline operation** — validators work without network  
+✅ **Legal compliance** — prepaid system addresses cash payment requirements  
+✅ **Anti-discrimination** — accessible to elderly, children, non-digital users  
+✅ **Production-aligned** — solves real controversy in Swiss public transport
+
+## Technology Stack
+
+- **Crypto**: RSA blind signatures (Chaum-style) + HMAC rotating proofs
+- **Frontend**: React 18 + Vite + Tailwind CSS + PWA (wallet + validator)
+- **Backend**: FastAPI + PostgreSQL + Redis + Bloom filters
+- **Deployment**: Docker Compose (full-stack local development)
 
 ---
 
@@ -67,11 +78,11 @@ This repository contains a Proof-of-Concept (POC) for an anonymous ticketing sys
 
 ---
 
-## Developer B — Frontend & Validator PWA
+## For Developer B — Frontend & Validator PWA
 
-### Core Responsibilities
+**You are Developer B.** You own all frontend code.
 
-You will own the **frontend** — both the **Wallet PWA** (passenger app) and **Validator PWA** (conductor/laptop scanner app). This includes:
+### Your Responsibilities
 
 1. **Wallet PWA**:
    - Generate random token `T` client-side
@@ -274,30 +285,37 @@ Output goes to `dist/` and can be served statically or via the Docker container.
 
 ## Collaboration with Developer A
 
-- **Developer A** owns backend, payment adapter, database, and Docker Compose orchestration
-- **You (Developer B)** own frontend PWAs and all client-side logic
-- **Integration point**: API contract defined in ARCHITECTURE.md
+**Clear separation**:
+- **Developer A** → Backend API, database, Docker Compose, payment adapter, crypto implementation
+- **You (Developer B)** → All frontend code (wallet + validator PWAs)
 
-When Developer A has backend endpoints running:
-1. Update your `.env` or `vite.config.js` to proxy API calls
-2. Test wallet purchase flow end-to-end
-3. Test validator redemption flow
+**Integration**: API contract fully specified in ARCHITECTURE.md
 
 ---
 
-## Questions or Blocked?
+## Documentation Structure
 
-- Check **[ARCHITECTURE.md](./ARCHITECTURE.md)** for detailed specs
-- Coordinate API contracts with Developer A
-- Use test mode endpoints (`/test/verify`) for frontend development without real payment integration
+This repository has **two core documents**:
+
+1. **README.md** (this file) — Quick start, developer tasks, practical guide
+2. **ARCHITECTURE.md** — Complete specification:
+   - Technical architecture & API contracts
+   - Cryptographic approach (blind signatures, rotating proofs)
+   - BLS real-world alignment & legal considerations
+   - Database schema, deployment, testing plan
+   - Developer task split (A vs B)
+
+**Start here** → then refer to ARCHITECTURE.md for details.
 
 ---
 
-## Next Steps
+## Getting Started
 
-1. ✅ Repository skeleton created
-2. ✅ Frontend scaffold with Vite + React + Tailwind
-3. 🚀 **Start implementing Wallet page** (`src/pages/Wallet.jsx`)
-4. 🚀 **Start implementing Validator page** (`src/pages/Validator.jsx`)
+See "Quick Start" section above, then check your task list and begin implementing wallet/validator pages.
+
+For questions or clarifications:
+- ✅ Check ARCHITECTURE.md for API specs
+- ✅ Coordinate with Developer A on backend endpoints
+- ✅ Use `/test/verify` stub for frontend-only development
 
 Happy coding! 🎟️
