@@ -56,8 +56,10 @@ export function verifySignature(token, signature, publicKey) {
   // In production: Verify signature using RSA public key
   // Verify: Sig(T)^e mod N == T
 
-  // For now, just check if signature starts with 'sig_'
-  return signature.startsWith("sig_");
+  // For now, just check if signature exists and starts with 'sig_'
+  return (
+    signature && typeof signature === "string" && signature.startsWith("sig_")
+  );
 }
 
 /**

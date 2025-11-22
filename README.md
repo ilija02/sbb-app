@@ -4,12 +4,12 @@
 
 ## ⚠️ Implementation Status (November 22, 2025)
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| **Frontend (Developer B)** | ✅ **COMPLETE** | Wallet + Validator PWAs fully functional |
-| **Backend (Developer A)** | ❌ **NOT STARTED** | API endpoints not implemented |
-| **Demo Capability** | ✅ **READY** | Mock mode enables full demo |
-| **Production Ready** | ⏳ **PENDING** | Requires backend completion |
+| Component                  | Status            | Notes                                    |
+| -------------------------- | ----------------- | ---------------------------------------- |
+| **Frontend (Developer B)** | ✅ **COMPLETE**    | Wallet + Validator PWAs fully functional |
+| **Backend (Developer A)**  | ❌ **NOT STARTED** | API endpoints not implemented            |
+| **Demo Capability**        | ✅ **READY**       | Mock mode enables full demo              |
+| **Production Ready**       | ⏳ **PENDING**     | Requires backend completion              |
 
 **TL;DR**: Frontend exceeds specification with HID-style validation bonus features. Backend not started. System fully demo-able in mock mode.
 
@@ -18,75 +18,106 @@
 
 ## What This Is
 
-A **device-bound digital ticketing system** POC where:
-- **Tickets are bound to devices** - cryptographically impossible to screenshot and share
-- **Passengers** use a PWA wallet (browser-based, no app download)
-- **Conductors** use a laptop scanner (webcam QR scanning or BLE proximity)
-- **Sharing prevention** via three layers:
-  1. **Device binding** (AES-GCM encrypted credentials) - Primary
-  2. **Challenge-response** (BLE proximity validation) - Active security
-  3. **Rotating QR codes** (30s epochs) - Fallback
-- **No PII visible** to conductors (only crypto proofs)
-- **HSM-backed** credential signing (production-grade security)
-- **Cash compliance** via anonymous prepaid voucher system
+A **three-component digital ticketing system** inspired by **HID Physical Access Control**:
 
-**Core Innovation**: Device = Credential (inspired by HID Mobile Access for office badges)
+1. **HID App / Physical Card** - NFC cards OR smartphones (passenger credentials)
+2. **Validator Machine** - At train doors (NFC readers, always online)
+3. **Conductor Handheld** - Manual checking (NFC readers OR QR scanner)
+
+### Core Security: HSM-Backed Credentials
+
+- **Physical NFC Cards**: Mifare DESFire EV3 with secure element (tamper-proof)
+- **Smartphone Support**: NFC HCE (Android) / Wallet (iOS) with secure storage
+- **All credentials** signed by HSM (AWS CloudHSM / Thales Luna)
+- **Validators** verify offline using cached HSM public key
+- **Challenge-response** protocol prevents cloning and replay attacks
+
+**Key Benefits**:
+✅ **Cannot be cloned** (secure element hardware)  
+✅ **No PII visible** to conductors (only crypto proofs)  
+✅ **Works offline** (validators cache credentials)  
+✅ **Supports both** cards and smartphones  
+✅ **HSM-backed** production-grade security  
+✅ **Cash compliance** via anonymous prepaid cards
 
 **Context**: Directly implements BLS/A-Welle's cashless transition strategy (Dec 2025 rollout), addressing constitutional concerns and discrimination prevention.
 
-📖 **[Read Architecture V2.0 (Device-Focused) →](./ARCHITECTURE_V2.md)** ⭐ **NEW**  
-*Primary: Device binding + HSM integration | Optional: Blind signatures*
+📖 **[Read Architecture V3.0 (Simplified - Physical Cards + HSM) →](./ARCHITECTURE_V3_SIMPLIFIED.md)** ⭐ **LATEST**  
+*Three components: Physical cards/phones + Validators + Conductor handhelds | HSM mandatory*
 
-📖 **[Read Original Architecture (Blind Signature-Focused) →](./ARCHITECTURE.md)**  
-*Includes: technical design, BLS alignment, legal considerations, implementation guide*
+📘 **[Read Use Cases V3.0 →](./USE_CASES_V3.md)** ⭐ **LATEST**  
+*10 use cases for physical cards + HSM | Multi-use cards | Anonymous purchases with blind signatures*
+
+📘 **[Read Use Cases V2.0 (Device-Binding) →](./USE_CASES.md)**  
+*Previous: Smartphone-only with device binding*
+
+� **[Read Architecture V2.0 (Device-Focused) →](./ARCHITECTURE_V2.md)**  
+*Previous: Device binding + HSM integration | Optional: Blind signatures*
+
+�📖 **[Read Original Architecture (Blind Signature-Focused) →](./ARCHITECTURE.md)**  
+*Initial design: Blind signatures, BLS alignment, legal considerations*
 
 🎤 **[Read Pitch Deck →](./PITCH_DECK.md)**  
 *Includes: business case, demo script, $136M/year ROI, hardware requirements*
 
 📊 **[Read Implementation Audit →](./IMPLEMENTATION_AUDIT.md)**  
-*Includes: 10 use cases, status matrix, gap analysis*
+*Includes: status matrix, gap analysis, demo readiness*
 
 ## Key Features
 
-### Primary Security (Device Binding)
-✅ **Device-bound credentials** — tickets encrypted with device-specific keys  
-✅ **Screenshot-proof** — credential decryption fails on different devices  
-✅ **HSM-backed signing** — enterprise-grade credential security  
-✅ **Challenge-response** — BLE proximity validation protocol  
+### Hardware Security
+✅ **Physical NFC cards** — Mifare DESFire EV3 with secure element (AES-128)  
+✅ **Cannot be cloned** — tamper-resistant hardware prevents duplication  
+✅ **HSM credential signing** — all tickets signed by AWS CloudHSM / Thales Luna  
+✅ **Challenge-response** — NFC proximity validation protocol  
 ✅ **Anti-replay** — each challenge single-use, time-limited
+
+### Dual Mode Support
+✅ **Physical cards** — for elderly, tourists, children (no smartphone needed)  
+✅ **Smartphone NFC** — Android HCE / iOS Wallet for tech-savvy users  
+✅ **Over-the-air provisioning** — smartphones receive tickets via Internet  
+✅ **Kiosk provisioning** — physical cards written at ticket counters
 
 ### Privacy & Compliance
 ✅ **No PII visible** — conductor never sees personal information  
-✅ **Legal compliance** — prepaid voucher system (Swiss cash requirement)  
-✅ **Anti-discrimination** — accessible to elderly, children, non-digital users  
+✅ **Legal compliance** — anonymous prepaid cards (Swiss cash requirement)  
+✅ **Anti-discrimination** — accessible to all demographics  
 ✅ **GDPR compliant** — minimal data collection, right to deletion
 
 ### Operational
-✅ **Offline operation** — validators work in train tunnels  
-✅ **Dual validation modes** — HID proximity + QR fallback  
-✅ **Twist-and-go** — motion-activated validation (premium UX)  
+✅ **Offline validation** — validators work in train tunnels (cached public key)  
+✅ **Always online validators** — 4G/5G sync to backend  
+✅ **Conductor override** — manual validation capability  
 ✅ **Production-aligned** — solves real BLS cashless controversy
 
 ## Technology Stack
 
-### Security Layer (Primary)
-- **Device Binding**: AES-GCM-256 encryption with device-specific keys
-- **Challenge-Response**: HMAC-SHA256 proximity validation
-- **HSM Integration**: AWS CloudHSM / Azure Key Vault (production)
-- **Hardware**: Optional TPM for enhanced device binding
+### Hardware Layer
+- **Physical Cards**: NXP Mifare DESFire EV3 (ISO 14443-A, AES-128 secure element)
+- **NFC Readers**: ACR122U or similar (13.56 MHz, contactless)
+- **Validator Machines**: Raspberry Pi 4 / Intel NUC + 4G/5G modem
+- **Conductor Handhelds**: Tablets with USB NFC readers or built-in NFC
+
+### Security Layer (Mandatory)
+- **HSM Integration**: AWS CloudHSM / Azure Key Vault / Thales Luna (FIPS 140-2 L3)
+- **Credential Signing**: RSA-2048, SHA-256
+- **Challenge-Response**: HMAC-SHA256 via NFC
+- **Secure Element**: Hardware-backed credential storage
 
 ### Application Layer
-- **Frontend**: React 18 + Vite + Tailwind CSS + PWA (wallet + validator)
-- **Backend**: FastAPI + PostgreSQL + Redis
-- **APIs**: Web Crypto API, Web Bluetooth API, DeviceMotion API
+- **Backend**: FastAPI + PostgreSQL (tickets, validations, revocations)
+- **Frontend (Wallet)**: React 18 PWA with NFC HCE support
+- **Frontend (Validator)**: React 18 PWA with NFC reader integration
+- **Frontend (Conductor)**: Tablet app with NFC validation
 
-### Optional Privacy Layer
-- **Blind Signatures**: Chaum-style RSA (purchase unlinkability)
-- **Rotating Proofs**: HMAC-based 30s epochs (QR fallback)
+### Communication
+- **NFC**: ISO 14443-A (contactless cards and smartphones)
+- **Cellular**: 4G/5G for validator sync to backend
+- **HTTPS**: TLS 1.3 for all Internet communication
 
 ### Deployment
-- **Development**: Docker Compose (full-stack local)
-- **Production**: AWS/Azure with HSM, PostgreSQL RDS, Redis ElastiCache
+- **Development**: Docker Compose (full-stack local) + HSM simulator
+- **Production**: AWS (CloudHSM + EC2 + RDS) or Azure (Key Vault + VMs)
 
 ---
 
@@ -209,6 +240,34 @@ Then access:
 - Frontend: `http://localhost` (via nginx)
 - Backend API: `http://localhost/api`
 - Direct backend: `http://localhost:8000`
+
+---
+
+## Implementation Status
+
+### V3.0 (Simplified Architecture - Target)
+
+| Component                  | Status        | Priority | Notes                               |
+| -------------------------- | ------------- | -------- | ----------------------------------- |
+| **Physical Card Support**  | ❌ Not Started | HIGH     | Mifare DESFire integration needed   |
+| **HSM Integration**        | ❌ Not Started | HIGH     | AWS CloudHSM setup + signing API    |
+| **Backend API**            | ❌ Not Started | HIGH     | FastAPI + PostgreSQL + HSM          |
+| **NFC Reader Integration** | ❌ Not Started | HIGH     | ACR122U driver + challenge-response |
+| **Validator Machine**      | ❌ Not Started | MEDIUM   | Raspberry Pi + NFC + LED indicators |
+| **Conductor Handheld**     | ❌ Not Started | MEDIUM   | Tablet app + NFC reader             |
+| **Kiosk Provisioning**     | ❌ Not Started | MEDIUM   | Card writing station                |
+| **Database Schema**        | ✅ Designed    | -        | PostgreSQL tables ready             |
+
+### V2.0 (Smartphone-Only - Prototype Complete)
+
+| Component                    | Status        | Notes                              |
+| ---------------------------- | ------------- | ---------------------------------- |
+| **Frontend - Wallet PWA**    | ✅ Complete    | React + device binding + mock mode |
+| **Frontend - Validator PWA** | ✅ Complete    | QR scanner + BLE simulation        |
+| **Crypto Library**           | ✅ Complete    | HMAC, AES-GCM, rotating proofs     |
+| **Real QR Scanning**         | ✅ Complete    | @zxing/library integrated          |
+| **Offline Storage**          | ✅ Complete    | IndexedDB for credentials          |
+| **Backend API**              | ❌ Not Started | Mock mode only                     |
 
 ---
 
