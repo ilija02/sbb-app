@@ -1,4 +1,4 @@
-# Anonymous Ticketing System# Anonymous Ticketing System# Anonymous Ticketing POC
+# Anonymous Ticketing System# Anonymous Ticketing System# Anonymous Ticketing System# Anonymous Ticketing POC
 
 
 
@@ -6,219 +6,440 @@
 
 
 
-## What It Does**Privacy-preserving public transport ticketing** using blind signatures and offline validation.**Proof-of-Concept** for an anonymous ticketing system addressing real-world Swiss public transport requirements (BLS, A-Welle) with cryptographic privacy guarantees.
+## User Journey: Physical Interactions**Privacy-preserving public transport ticketing** using blind signatures and offline validation.
 
 
 
-A two-step ticketing system that decouples payment from travel:
+### Step 1: Get a Card (One-Time)
+
+- **Where**: Ticket counter or vending machine
+
+- **What**: Purchase blank NFC card (CHF 5 deposit)## What It Does**Privacy-preserving public transport ticketing** using blind signatures and offline validation.**Proof-of-Concept** for an anonymous ticketing system addressing real-world Swiss public transport requirements (BLS, A-Welle) with cryptographic privacy guarantees.
+
+- **Device**: No tapping yet - just receive card
 
 
 
-1. **Buy Credits** → Pay with cash/card → Get anonymous credits on NFC card## What It Does## ⚠️ Implementation Status (November 22, 2025)
+### Step 2: Buy Credits
 
-2. **Buy Ticket** → Use credits → Get cryptographically signed ticket
+- **Where**: At any ticket kioskA two-step ticketing system that decouples payment from travel:
 
-3. **Self-Validate** → Tap at platform validator → Green light (honor system)
+- **Physical Action**: Place card on kiosk's NFC reader (flat surface marked "📱 TAP HERE")
 
-4. **Random Checks** → Conductor verifies → Or issues CHF 100+ fine
+- **Hold**: Keep card on reader for 1-2 seconds until beep
 
-A two-step ticketing system that decouples payment from travel:| Component                  | Status            | Notes                                    |
+- **Screen Shows**: Current balance → Select amount (20/50/100/200 CHF)
 
-**Privacy Guarantee**: Backend cannot link your payment to your travel routes.  
+- **Payment**: Insert cash or card into payment slot1. **Buy Credits** → Pay with cash/card → Get anonymous credits on NFC card## What It Does## ⚠️ Implementation Status (November 22, 2025)
 
-**Compliance Model**: Honor system + spot checks + heavy fines (like current Swiss system)| -------------------------- | ----------------- | ---------------------------------------- |
+- **Result**: Kiosk writes credits to NFC card, screen shows "✅ CHF 100 added"
 
-
-
-## How It Works1. **Buy Credits** → Pay with cash/card → Get anonymous credits on NFC card| **Frontend (Developer B)** | ✅ **COMPLETE**    | Wallet + Validator PWAs fully functional |
+- **Remove**: Take card when done2. **Buy Ticket** → Use credits → Get cryptographically signed ticket
 
 
 
-### Key Innovation: Blind Signatures2. **Buy Ticket** → Use credits → Get cryptographically signed ticket| **Backend (Developer A)**  | ❌ **NOT STARTED** | API endpoints not implemented            |
+### Step 3: Buy Ticket (Using Credits)3. **Self-Validate** → Tap at platform validator → Green light (honor system)
+
+- **Where**: Same kiosk or any other kiosk
+
+- **Physical Action**: Place card on NFC reader again4. **Random Checks** → Conductor verifies → Or issues CHF 100+ fine
+
+- **Hold**: 1-2 seconds until beep
+
+- **Screen Shows**: A two-step ticketing system that decouples payment from travel:| Component                  | Status            | Notes                                    |
+
+  - Current balance: CHF 100
+
+  - "Select Route" menu**Privacy Guarantee**: Backend cannot link your payment to your travel routes.  
+
+  - Choose: Zurich → Bern (CHF 55)
+
+- **Process**: Kiosk reads balance, generates ticket, writes to card**Compliance Model**: Honor system + spot checks + heavy fines (like current Swiss system)| -------------------------- | ----------------- | ---------------------------------------- |
+
+- **Result**: Screen shows "✅ Ticket written, Balance: CHF 45"
+
+- **Remove**: Take card
 
 
 
-```3. **Validate** → Tap card → Offline signature verification → Board train| **Demo Capability**        | ✅ **READY**       | Mock mode enables full demo              |
+### Step 4: Validate at Platform## How It Works1. **Buy Credits** → Pay with cash/card → Get anonymous credits on NFC card| **Frontend (Developer B)** | ✅ **COMPLETE**    | Wallet + Validator PWAs fully functional |
 
-Purchase Credits:    Backend sees → "Payment: 100 CHF" (generic)
+- **Where**: Platform validator (yellow post with NFC reader)
 
-Generate Ticket:     Card creates → ticket_id (random)| **Production Ready**       | ⏳ **PENDING**     | Requires backend completion              |
+- **Physical Action**: Tap card on validator's circular NFC target
 
-                     Card blinds → blind(ticket_id)
+- **Hold**: Brief tap (0.5 seconds) - just touch and lift
 
-                     Backend signs → sign(blind(ticket_id))  ← Never sees original!**Privacy Guarantee**: Backend cannot link your payment to your travel routes.
+- **Validator Shows**: ### Key Innovation: Blind Signatures2. **Buy Ticket** → Use credits → Get cryptographically signed ticket| **Backend (Developer A)**  | ❌ **NOT STARTED** | API endpoints not implemented            |
 
-                     Card unblinds → signature(ticket_id)
+  - LED lights up GREEN ✅
 
-Validation:          Validator verifies → signature offline**TL;DR**: Frontend exceeds specification with HID-style validation bonus features. Backend not started. System fully demo-able in mock mode.
+  - Screen: "Valid - Zurich → Bern"
 
-                     Backend never told → where/when you traveled
+  - Beep sound
 
-```## How It Works
+- **What Happens**: Validator logs ticket_id to bloom filter (prevents reuse)```3. **Validate** → Tap card → Offline signature verification → Board train| **Demo Capability**        | ✅ **READY**       | Mock mode enables full demo              |
 
+- **Remove**: Take card immediately
 
-
-**Result**: Backend knows you bought credits, but not which routes you used them for.📊 **[Read Complete Implementation Audit →](./IMPLEMENTATION_AUDIT.md)**  
-
-
-
-## Components### Key Innovation: Blind Signatures*Includes: 10 documented use cases, architecture alignment, gap analysis*
+- **Board**: No barrier - proceed to train (honor system)Purchase Credits:    Backend sees → "Payment: 100 CHF" (generic)
 
 
 
-### 1. Kiosk (Purchase Credits or Tickets)
+### Step 5: Conductor Check (Random)Generate Ticket:     Card creates → ticket_id (random)| **Production Ready**       | ⏳ **PENDING**     | Requires backend completion              |
 
-- Buy generic credits with cash/card
+- **Where**: On the train during your journey
 
-- Purchase tickets using on-card credits```🎮 **[Read V3.0 Demo Guide →](./V3_DEMO_GUIDE.md)** ⭐ **NEW**  
+- **When**: Random - conductor walks through checking passengers                     Card blinds → blind(ticket_id)
 
-- NFC card read/write
+- **Physical Action**: When asked, tap card on conductor's handheld reader
 
-Purchase Credits:    Backend sees → "Payment: 100 CHF" (generic)*Complete demo script: Kiosk purchase → Train validation | 3-minute flow | No hardware needed*
+- **Hold**: 1-2 seconds on handheld device                     Backend signs → sign(blind(ticket_id))  ← Never sees original!**Privacy Guarantee**: Backend cannot link your payment to your travel routes.
 
-### 2. Platform Validator (Self-Service)
+- **Conductor's Screen Shows**:
 
-- NFC tap at platform/station entranceGenerate Ticket:     Card creates → ticket_id (random)
+  - ✅ Valid: "Zurich → Bern, Expires 14:30" → You're good                     Card unblinds → signature(ticket_id)
 
-- Offline signature verification (< 500ms)
+  - ❌ Invalid: "Not validated" or "Expired" → CHF 100 fine
 
-- Green/red LED indicator                     Card blinds → blind(ticket_id)## What This Is
-
-- Logs validation to bloom filter
-
-- **No physical barrier** (honor system)                     Backend signs → sign(blind(ticket_id))  ← Never sees original!
+- **Remove**: Take card backValidation:          Validator verifies → signature offline**TL;DR**: Frontend exceeds specification with HID-style validation bonus features. Backend not started. System fully demo-able in mock mode.
 
 
 
-### 3. Conductor Handheld (Enforcement)                     Card unblinds → signature(ticket_id)A **three-component digital ticketing system** inspired by **HID Physical Access Control**:
+## What Happens Behind the Scenes                     Backend never told → where/when you traveled
 
-- Random spot checks during ride
 
-- Same offline validationValidation:          Validator verifies → signature offline
 
-- Detects duplicate/invalid tickets
-
-- Issues CHF 100+ fine for violations                     Backend never told → where/when you traveled1. **HID App / Physical Card** - NFC cards OR smartphones (passenger credentials)
-
-- Syncs bloom filter with validators
-
-```2. **Validator Machine** - At train doors (NFC readers, always online)
-
-## Architecture
-
-3. **Conductor Handheld** - Manual checking (NFC readers OR QR scanner)
+### At Kiosk (Buy Credits):```## How It Works
 
 ```
 
-┌─────────────────────────────────────────────────┐**Result**: Backend knows you bought credits, but not which routes you used them for.
+1. You: Place card on reader
+
+2. Kiosk: Reads card UID
+
+3. Kiosk: Shows current balance from card**Result**: Backend knows you bought credits, but not which routes you used them for.📊 **[Read Complete Implementation Audit →](./IMPLEMENTATION_AUDIT.md)**  
+
+4. You: Select amount + pay
+
+5. Backend: Records "Payment: CHF 100" (no personal info, no route)
+
+6. Kiosk: Writes credits to card's secure storage
+
+7. You: Remove card## Components### Key Innovation: Blind Signatures*Includes: 10 documented use cases, architecture alignment, gap analysis*
+
+```
+
+
+
+### At Kiosk (Buy Ticket):
+
+```### 1. Kiosk (Purchase Credits or Tickets)
+
+1. You: Place card on reader
+
+2. Kiosk: Reads balance from card- Buy generic credits with cash/card
+
+3. You: Select route (e.g., Zurich → Bern)
+
+4. Card: Generates random ticket_id, blinds it- Purchase tickets using on-card credits```🎮 **[Read V3.0 Demo Guide →](./V3_DEMO_GUIDE.md)** ⭐ **NEW**  
+
+5. Backend: Signs blinded ticket (never sees ticket_id or card UID)
+
+6. Card: Unblinds signature- NFC card read/write
+
+7. Kiosk: Writes ticket + signature to card
+
+8. Kiosk: Deducts CHF 55 from card balancePurchase Credits:    Backend sees → "Payment: 100 CHF" (generic)*Complete demo script: Kiosk purchase → Train validation | 3-minute flow | No hardware needed*
+
+9. You: Remove card
+
+```### 2. Platform Validator (Self-Service)
+
+
+
+### At Platform Validator:- NFC tap at platform/station entranceGenerate Ticket:     Card creates → ticket_id (random)
+
+```
+
+1. You: Tap card on validator- Offline signature verification (< 500ms)
+
+2. Validator: Reads ticket + signature from card
+
+3. Validator: Verifies signature offline (cached HSM public key)- Green/red LED indicator                     Card blinds → blind(ticket_id)## What This Is
+
+4. Validator: Checks expiry time
+
+5. Validator: Logs ticket_id to bloom filter- Logs validation to bloom filter
+
+6. Validator: Shows GREEN LED + beep
+
+7. You: Proceed to train (no gate/door to open)- **No physical barrier** (honor system)                     Backend signs → sign(blind(ticket_id))  ← Never sees original!
+
+```
+
+
+
+### On Train (Conductor Check):
+
+```### 3. Conductor Handheld (Enforcement)                     Card unblinds → signature(ticket_id)A **three-component digital ticketing system** inspired by **HID Physical Access Control**:
+
+1. Conductor: Approaches you
+
+2. You: Tap card on conductor's handheld- Random spot checks during ride
+
+3. Handheld: Reads ticket + signature from card
+
+4. Handheld: Verifies signature offline- Same offline validationValidation:          Validator verifies → signature offline
+
+5. Handheld: Checks bloom filter (was it validated?)
+
+6. Handheld: Checks if ticket used on another train today (duplicate detection)- Detects duplicate/invalid tickets
+
+7. Result:
+
+   - Valid → Conductor moves on- Issues CHF 100+ fine for violations                     Backend never told → where/when you traveled1. **HID App / Physical Card** - NFC cards OR smartphones (passenger credentials)
+
+   - Invalid → Conductor issues CHF 100 fine
+
+```- Syncs bloom filter with validators
+
+
+
+## Key Features```2. **Validator Machine** - At train doors (NFC readers, always online)
+
+
+
+### Privacy Protection## Architecture
+
+| What Backend Sees | What Backend Doesn't See |
+
+|-------------------|--------------------------|3. **Conductor Handheld** - Manual checking (NFC readers OR QR scanner)
+
+| "CHF 100 payment" | Your name, card UID |
+
+| "Signed blinded token ABC123" | Original ticket_id, route |```
+
+| Generic credits purchased | Which routes credits used for |
+
+| | Where/when you traveled |┌─────────────────────────────────────────────────┐**Result**: Backend knows you bought credits, but not which routes you used them for.
+
+| | Validation events (offline) |
 
 │                   KIOSK                         │
 
-│  1. Buy Credits (Payment → Generic CHF)         │### Core Security: HSM-Backed Credentials
+### Physical Security
 
-│  2. Buy Ticket (Credits → Blinded Signature)    │
+| Attack | Prevention |│  1. Buy Credits (Payment → Generic CHF)         │### Core Security: HSM-Backed Credentials
 
-└─────────────────────────────────────────────────┘## Components
+|--------|-----------|
 
-                        ↓
+| **Clone card** | Mifare DESFire EV3 encryption (AES-128) - can't extract keys |│  2. Buy Ticket (Credits → Blinded Signature)    │
 
-           (NFC Card with Credits + Ticket)- **Physical NFC Cards**: Mifare DESFire EV3 with secure element (tamper-proof)
+| **Copy ticket to another card** | Ticket bound to card UID - won't validate |
 
-                        ↓
+| **Use same ticket twice** | Bloom filter detects duplicate ticket_id → CHF 100 fine |└─────────────────────────────────────────────────┘## Components
 
-┌─────────────────────────────────────────────────┐### 1. Kiosk (Purchase Credits or Tickets)- **Smartphone Support**: NFC HCE (Android) / Wallet (iOS) with secure storage
+| **Forge signature** | Only HSM can create valid signatures (RSA-2048) |
 
-│           PLATFORM VALIDATOR (Honor)            │
+| **Share ticket** | Card UID binding + duplicate detection → Fine |                        ↓
 
-│  - Tap card → Read ticket + signature           │- Buy generic credits with cash/card- **All credentials** signed by HSM (AWS CloudHSM / Thales Luna)
 
-│  - Verify signature offline (HSM public key)    │
 
-│  - Log to bloom filter (prevent reuse)          │- Purchase tickets using on-card credits- **Validators** verify offline using cached HSM public key
+### Compliance Model           (NFC Card with Credits + Ticket)- **Physical NFC Cards**: Mifare DESFire EV3 with secure element (tamper-proof)
+
+- **Honor System**: Validate at platform, board freely (no gates)
+
+- **Spot Checks**: Conductors randomly check 1-2% of passengers                        ↓
+
+- **Economic Deterrent**: CHF 100 fine > CHF 55 ticket = Compliance
+
+- **Swiss Tradition**: Current system has ~90% voluntary compliance┌─────────────────────────────────────────────────┐### 1. Kiosk (Purchase Credits or Tickets)- **Smartphone Support**: NFC HCE (Android) / Wallet (iOS) with secure storage
+
+
+
+## NFC Reader Placement│           PLATFORM VALIDATOR (Honor)            │
+
+
+
+### Kiosk Reader:│  - Tap card → Read ticket + signature           │- Buy generic credits with cash/card- **All credentials** signed by HSM (AWS CloudHSM / Thales Luna)
+
+- **Location**: Built into kiosk counter, marked area
+
+- **Look**: Flat circular target, often says "📱 TAP CARD HERE"│  - Verify signature offline (HSM public key)    │
+
+- **Size**: ~10cm diameter circle
+
+- **Position**: Horizontal surface at waist height│  - Log to bloom filter (prevent reuse)          │- Purchase tickets using on-card credits- **Validators** verify offline using cached HSM public key
+
+- **Feedback**: Beep + screen changes when card detected
 
 │  - Show green/red LED (no physical barrier)     │
 
-└─────────────────────────────────────────────────┘- NFC card read/write- **Challenge-response** protocol prevents cloning and replay attacks
+### Platform Validator:
 
-                        ↓
+- **Location**: Yellow posts near platform entrance└─────────────────────────────────────────────────┘- NFC card read/write- **Challenge-response** protocol prevents cloning and replay attacks
 
-┌─────────────────────────────────────────────────┐
+- **Look**: Chest-height rectangular box with circular target
 
-│         CONDUCTOR HANDHELD (Enforcement)        │
+- **Size**: Target is ~8cm diameter                        ↓
 
-│  - Random spot checks during ride               │### 2. Train Door Validator (Automated)**Key Benefits**:
+- **Position**: Vertical surface facing passengers
 
-│  - Same offline validation                      │
+- **Feedback**: LED ring (green/red) + beep + small screen┌─────────────────────────────────────────────────┐
+
+
+
+### Conductor Handheld:│         CONDUCTOR HANDHELD (Enforcement)        │
+
+- **Location**: Conductor carries tablet-sized device
+
+- **Look**: Like a large smartphone with NFC reader on back│  - Random spot checks during ride               │### 2. Train Door Validator (Automated)**Key Benefits**:
+
+- **Size**: Tablet-sized (10-12 inches)
+
+- **Position**: Conductor holds it, you tap on back surface│  - Same offline validation                      │
+
+- **Feedback**: Screen shows validation result to conductor
 
 │  - Check bloom filter (detect duplicates)       │- NFC tap at train entrance✅ **Cannot be cloned** (secure element hardware)  
 
+## Technology Stack
+
 │  - Invalid/duplicate → CHF 100+ fine            │
 
-└─────────────────────────────────────────────────┘- Offline signature verification (< 500ms)✅ **No PII visible** to conductors (only crypto proofs)  
+- **Cards**: Mifare DESFire EV3 (ISO 14443-A, 13.56 MHz NFC)
 
-```
+- **Readers**: ACR122U or similar contactless readers└─────────────────────────────────────────────────┘- Offline signature verification (< 500ms)✅ **No PII visible** to conductors (only crypto proofs)  
+
+- **Range**: 0-4cm (must be very close or touching)
+
+- **Speed**: Read/write in 0.3-0.8 seconds```
+
+- **Storage**: 4KB per card (enough for ~10 tickets)
 
 - Door unlock on valid ticket✅ **Works offline** (validators cache credentials)  
 
+## Quick Start (Demo)
+
 ## Privacy Features
 
-✅ **Supports both** cards and smartphones  
+```powershell
 
-| Feature | How It Works |
+cd frontend✅ **Supports both** cards and smartphones  
+
+npm install
+
+npm run dev| Feature | How It Works |
+
+```
 
 |---------|-------------|### 3. Conductor Handheld (Manual Check)✅ **HSM-backed** production-grade security  
 
-| **Payment Unlinking** | Credits are generic (no route info at purchase) |
+Visit `http://localhost:5173`:
 
-| **Blind Signatures** | Backend signs tickets without seeing `ticket_id` |- NFC tap for inspection✅ **Cash compliance** via anonymous prepaid cards
+1. **Kiosk page**: Simulates NFC card tapping (virtual cards)| **Payment Unlinking** | Credits are generic (no route info at purchase) |
 
-| **Offline Validation** | Validators never report to backend |
+2. **Platform Validator**: Simulates validation station
 
-| **No PII Required** | Signature proves legitimacy (like cash) |- Same validation logic as doors
-
-| **Anonymous Credits** | Pay cash → Get credits → Untraceable to routes |
-
-- Override capability for edge cases**Context**: Directly implements BLS/A-Welle's cashless transition strategy (Dec 2025 rollout), addressing constitutional concerns and discrimination prevention.
-
-## Security & Compliance
+3. **Conductor Handheld**: Simulates on-train check| **Blind Signatures** | Backend signs tickets without seeing `ticket_id` |- NFC tap for inspection✅ **Cash compliance** via anonymous prepaid cards
 
 
+
+## Files| **Offline Validation** | Validators never report to backend |
+
+
+
+```| **No PII Required** | Signature proves legitimacy (like cash) |- Same validation logic as doors
+
+/frontend/src/pages/
+
+  KioskPurchase.jsx      # Credits + ticket purchase (simulates NFC tap)| **Anonymous Credits** | Pay cash → Get credits → Untraceable to routes |
+
+  TrainValidator.jsx     # Platform validator (green/red LED)
+
+  Validator.jsx          # Conductor handheld (with fines)- Override capability for edge cases**Context**: Directly implements BLS/A-Welle's cashless transition strategy (Dec 2025 rollout), addressing constitutional concerns and discrimination prevention.
+
+  
+
+/frontend/src/lib/## Security & Compliance
+
+  nfcSimulator.js        # Virtual NFC card system (demo mode)
+
+  crypto.js              # Blind signature utilities
+
+```
 
 | Feature | Implementation |
 
+## Documentation
+
 |---------|---------------|## Architecture📖 **[Read Architecture V3.0 (Simplified - Physical Cards + HSM) →](./ARCHITECTURE_V3_SIMPLIFIED.md)** ⭐ **LATEST**  
 
-| **Anti-Sharing** | Ticket bound to card UID + CHF 100 fine if caught |
+- **[USE_CASES.md](./USE_CASES.md)** - Detailed technical use cases
 
-| **Anti-Cloning** | Mifare DESFire EV3 encryption (AES-128) |*Three components: Physical cards/phones + Validators + Conductor handhelds | HSM mandatory*
+- **README.md** - This file (user journey and physical interactions)| **Anti-Sharing** | Ticket bound to card UID + CHF 100 fine if caught |
 
-| **Anti-Reuse** | Bloom filters detect duplicate `ticket_id` → Fine |
 
-| **HSM Signatures** | Only HSM can create valid signatures (RSA-2048) |```
+
+## Current Status| **Anti-Cloning** | Mifare DESFire EV3 encryption (AES-128) |*Three components: Physical cards/phones + Validators + Conductor handhelds | HSM mandatory*
+
+
+
+✅ **Frontend Demo**: Complete with virtual NFC simulation  | **Anti-Reuse** | Bloom filters detect duplicate `ticket_id` → Fine |
+
+❌ **Backend**: Not implemented yet  
+
+❌ **Real NFC Hardware**: Demo uses virtual cards  | **HSM Signatures** | Only HSM can create valid signatures (RSA-2048) |```
+
+🎯 **Demo Ready**: Full user flow works in browser
 
 | **Cannot Forge** | Signature verification with HSM public key |
 
+## Why This Design?
+
 | **Compliance Model** | Honor system + random checks + heavy fines |┌─────────────────────────────────────────────────┐📘 **[Read Use Cases V3.0 →](./USE_CASES_V3.md)** ⭐ **LATEST**  
 
+### No Physical Barriers?
+
+- **Cost**: Gates cost CHF 50K+ each × 100 stations = CHF 5M+
+
+- **Swiss Model**: Honor system already works (~90% compliance)
+
+- **Economics**: CHF 100 fine > CHF 55 ticket = Self-interest compliance### Why Honor System Works│                   KIOSK                         │*10 use cases for physical cards + HSM | Multi-use cards | Anonymous purchases with blind signatures*
+
+- **Accessibility**: No barriers = wheelchair friendly, faster boarding
 
 
-### Why Honor System Works│                   KIOSK                         │*10 use cases for physical cards + HSM | Multi-use cards | Anonymous purchases with blind signatures*
 
+### Why NFC Cards?
 
+- **Universal**: Works for everyone (elderly, tourists, no smartphone needed)**Swiss Model**: Current system already uses honor system with spot checks│  1. Buy Credits (Payment → Generic CHF)         │
 
-**Swiss Model**: Current system already uses honor system with spot checks│  1. Buy Credits (Payment → Generic CHF)         │
+- **Secure**: Hardware encryption prevents cloning
 
-- **Validation Rate**: ~90% compliance (existing SBB data)
+- **Fast**: Tap-and-go in < 1 second- **Validation Rate**: ~90% compliance (existing SBB data)
+
+- **Proven**: Same tech as contactless credit cards
 
 - **Spot Check Frequency**: 1-2% of rides checked by conductors│  2. Buy Ticket (Credits → Blinded Signature)    │📘 **[Read Use Cases V2.0 (Device-Binding) →](./USE_CASES.md)**  
 
-- **Fine Amount**: CHF 100+ (higher than most tickets)
+### Why Credits First?
 
-- **Economic Deterrent**: Fine cost > Ticket cost = Self-interest compliance└─────────────────────────────────────────────────┘*Previous: Smartphone-only with device binding*
+- **Privacy**: Backend sees generic "CHF 100 payment", not specific routes- **Fine Amount**: CHF 100+ (higher than most tickets)
+
+- **Flexibility**: Use credits for any route later
+
+- **Anonymity**: Cash payment + no route selection = Maximum privacy- **Economic Deterrent**: Fine cost > Ticket cost = Self-interest compliance└─────────────────────────────────────────────────┘*Previous: Smartphone-only with device binding*
 
 
 
-**This System Adds**:                        ↓
+---
+
+
+
+**Key Insight**: Physical barriers aren't needed when you combine cryptographic fraud prevention (can't forge/clone) with economic deterrents (fine > ticket cost). Switzerland's honor system proves this works.**This System Adds**:                        ↓
+
 
 - Cryptographic proof (can't forge)
 

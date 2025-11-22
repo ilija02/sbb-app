@@ -1,10 +1,11 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { generateToken, blindToken, unblindSignature } from '../lib/crypto'
 import { getPublicKey, signBlindedToken } from '../lib/api'
-import { writeToCard, generateVirtualCardId, addCredits, getBalance, deductCredits } from '../lib/nfcSimulator'
+import { writeToCard, generateVirtualCardId, addCredits, getBalance, deductCredits, getAllCards, clearAllCards } from '../lib/nfcSimulator'
 
 export default function KioskPurchase() {
+  const [searchParams] = useSearchParams()
   const [mode, setMode] = useState('menu') // menu | credits | ticket
   const [step, setStep] = useState('select') // select | payment | processing | write | card_write | success
   const [selectedTicket, setSelectedTicket] = useState(null)
@@ -15,6 +16,16 @@ export default function KioskPurchase() {
   const [processing, setProcessing] = useState(false)
   const [writing, setWriting] = useState(false)
   const [balance, setBalance] = useState(0)
+
+  // Auto-load card from URL if provided
+  useEffect(() => {
+    const urlCardId = searchParams.get('cardId')
+    if (urlCardId) {
+      setCardId(urlCardId)
+      // Auto-load balance
+      getBalance(urlCardId).then(bal => setBalance(bal))
+    }
+  }, [searchParams])
 
   const tickets = [
     { id: 'single', name: 'Single Journey', route: 'ZH-BE', price: 55, duration: 2, class: 2 },
@@ -55,6 +66,13 @@ export default function KioskPurchase() {
       // Step 4: Unblind signature on card
       const signature = unblindSignature(blindSignature, 'blinding_factor')
 
+      console.log('DEBUG: Purchase flow:', {
+        originalTicketId: originalTicketId.substring(0, 20) + '...',
+        blindedToken: blindedToken.substring(0, 30) + '...',
+        blindSignature: blindSignature.substring(0, 30) + '...',
+        signature: signature
+      })
+
       // Step 5: Create ticket data
       const now = Date.now()
       const ticket = {
@@ -68,8 +86,7 @@ export default function KioskPurchase() {
 
       setTicketData({ ...ticket, signature })
 
-      // Step 6: Deduct credits and write to card
-      await deductCredits(cardId, selectedTicket.price)
+      // Step 6: Move to card write (deduct happens after write confirms)
       setStep('card_write')
 
     } catch (error) {
@@ -82,17 +99,34 @@ export default function KioskPurchase() {
   }
 
   const handleWriteToCard = async () => {
-    setProcessing(true)
+    setWriting(true)
 
     try {
-      // Write to NFC card
+      console.log('DEBUG: Writing to card:', {
+        cardId,
+        ticketData: {
+          ...ticketData,
+          ticket_id: ticketData.ticket_id?.substring(0, 20) + '...',
+        },
+        signature: ticketData.signature
+      })
+
+      // Step 1: Write ticket to NFC card
       await writeToCard(cardId, ticketData, ticketData.signature)
+      
+      // Step 2: Deduct credits after successful write
+      const newBalance = await deductCredits(cardId, selectedTicket.price)
+      setBalance(newBalance)
+      
+      console.log('DEBUG: Card write success, new balance:', newBalance)
+      
       setStep('success')
     } catch (error) {
       console.error('Card write failed:', error)
       alert('Failed to write to card: ' + error.message)
+      setStep('payment')
     } finally {
-      setProcessing(false)
+      setWriting(false)
     }
   }
 
@@ -123,11 +157,16 @@ export default function KioskPurchase() {
       // Simulate NFC write
       await new Promise(resolve => setTimeout(resolve, 2000))
 
-      // Generate card ID and add credits
-      const newCardId = generateVirtualCardId()
-      setCardId(newCardId)
+      // Use existing card ID or generate new one
+      let targetCardId = cardId
+      if (!targetCardId) {
+        targetCardId = generateVirtualCardId()
+        setCardId(targetCardId)
+      }
       
-      await addCredits(newCardId, selectedAmount)
+      // Add credits to card
+      const newBalance = await addCredits(targetCardId, selectedAmount)
+      setBalance(newBalance)
       
       setStep('success')
     } catch (error) {
@@ -424,6 +463,21 @@ export default function KioskPurchase() {
                 <p className="text-sm text-green-700 mt-2">Payment confirmed - ready to write</p>
               </div>
 
+              {/* Optional: Enter existing card ID */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 max-w-md mx-auto">
+                <p className="text-sm text-blue-800 mb-2">🎮 Demo: Enter Card ID (optional)</p>
+                <input
+                  type="text"
+                  value={cardId}
+                  onChange={(e) => setCardId(e.target.value)}
+                  placeholder="Leave blank to create new card"
+                  className="w-full px-4 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                />
+                <p className="text-xs text-blue-600 mt-1">
+                  {cardId ? `Adding to existing card: ${cardId}` : 'New card will be created automatically'}
+                </p>
+              </div>
+
               <button
                 onClick={handleWriteCreditsToCard}
                 disabled={writing}
@@ -462,10 +516,10 @@ export default function KioskPurchase() {
 
               <button
                 onClick={handleWriteToCard}
-                disabled={processing}
+                disabled={writing}
                 className="px-8 py-4 bg-blue-600 text-white rounded-lg text-xl font-semibold hover:bg-blue-700 disabled:bg-gray-400 transition"
               >
-                {processing ? '✍️ Writing to Card...' : '📱 Simulate Card Tap'}
+                {writing ? '✍️ Writing to Card...' : '📱 Place Card & Write'}
               </button>
 
               <div className="mt-6 bg-gray-50 rounded-lg p-4 text-xs font-mono text-left max-w-md mx-auto">
@@ -493,16 +547,20 @@ export default function KioskPurchase() {
               </p>
 
               <div className="bg-green-50 border border-green-200 rounded-lg p-6 max-w-md mx-auto mb-6">
-                <p className="text-sm text-green-800 mb-3">Card UID: <span className="font-mono">{cardId}</span></p>
+                <p className="text-sm text-green-800 mb-3">
+                  💳 Card UID: <span className="font-mono font-semibold">{cardId}</span>
+                </p>
                 {mode === 'credits' ? (
                   <>
-                    <p className="text-sm text-green-800 mb-3">New Balance: CHF {selectedAmount}</p>
-                    <p className="text-sm text-green-800">Ready to purchase tickets anonymously</p>
+                    <p className="text-lg font-bold text-green-600 mb-2">New Balance: CHF {balance}</p>
+                    <p className="text-sm text-green-700">✓ Credits added successfully</p>
+                    <p className="text-sm text-green-800 mt-2">Ready to purchase tickets anonymously</p>
                   </>
                 ) : (
                   <>
-                    <p className="text-sm text-green-800 mb-3">Remaining Balance: CHF {balance}</p>
-                    <p className="text-sm text-green-800">Ready for validation at train entrance</p>
+                    <p className="text-lg font-bold text-green-600 mb-2">Remaining Balance: CHF {balance}</p>
+                    <p className="text-sm text-green-700">✓ Ticket written to card</p>
+                    <p className="text-sm text-green-800 mt-2">Ready for validation at train entrance</p>
                   </>
                 )}
               </div>
@@ -556,8 +614,56 @@ export default function KioskPurchase() {
             <li>✅ Physical NFC card simulation (Mifare DESFire EV3)</li>
             <li>✅ On-card credit balance</li>
             <li>✅ Offline ticket validation (no tracking)</li>
+            <li>✅ Persistent storage (data saved across page navigation)</li>
             <li>⏳ Real NFC hardware integration (needs ACR122U reader)</li>
           </ul>
+        </div>
+
+        {/* Debug Panel */}
+        <div className="mt-4 bg-gray-50 border border-gray-300 rounded-lg p-4 text-sm">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-semibold text-gray-800">🔧 Debug: Virtual Cards</h3>
+            <button
+              onClick={() => {
+                if (confirm('Clear all virtual cards? This will delete all credits and tickets.')) {
+                  clearAllCards()
+                  setCardId('')
+                  setBalance(0)
+                  alert('All cards cleared!')
+                }
+              }}
+              className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition"
+            >
+              Clear All Cards
+            </button>
+          </div>
+          <div className="bg-white rounded p-3 font-mono text-xs max-h-40 overflow-auto">
+            {(() => {
+              const cards = getAllCards()
+              const cardCount = Object.keys(cards).length
+              if (cardCount === 0) {
+                return <p className="text-gray-500">No cards created yet</p>
+              }
+              return (
+                <div className="space-y-2">
+                  <p className="text-gray-700 font-semibold">{cardCount} card(s) in storage:</p>
+                  {Object.entries(cards).map(([id, card]) => (
+                    <div key={id} className="border-l-2 border-blue-400 pl-2">
+                      <p className="text-blue-600">Card: {id}</p>
+                      <p className="text-green-600">Balance: CHF {card.credits || 0}</p>
+                      <p className="text-purple-600">
+                        Tickets: {card.applications?.['0x5342']?.files ? 
+                          Math.floor(Object.keys(card.applications['0x5342'].files).length / 2) : 0}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+          </div>
+          <p className="text-gray-600 text-xs mt-2">
+            💾 Data stored in browser localStorage (persists across page navigation)
+          </p>
         </div>
       </div>
     </div>

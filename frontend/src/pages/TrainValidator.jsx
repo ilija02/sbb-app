@@ -45,14 +45,17 @@ export default function TrainValidator() {
         return
       }
 
+      setCardData(data)
+
       if (!data.tickets || data.tickets.length === 0) {
         setStatus('invalid')
-        setErrorMessage('No tickets on card')
-        setTimeout(reset, 3000)
+        setErrorMessage(data.credits > 0 
+          ? `Card has CHF ${data.credits} credits but no ticket. Purchase a ticket at the kiosk first.`
+          : 'No tickets on card. Purchase a ticket at the kiosk first.'
+        )
+        setTimeout(reset, 5000)
         return
       }
-
-      setCardData(data)
 
       // Step 2: Validate first ticket
       setStatus('validating')
@@ -81,11 +84,21 @@ export default function TrainValidator() {
 
       // Step 3: Verify signature (offline)
       const publicKey = await getPublicKey()
+      
+      console.log('DEBUG: Verifying ticket:', {
+        ticket_id: ticket.ticket_id?.substring(0, 20) + '...',
+        signature: ticket.signature,
+        signatureType: typeof ticket.signature,
+        publicKey
+      })
+      
       const signatureValid = verifySignature(ticket.ticket_id, ticket.signature, publicKey)
+      
+      console.log('DEBUG: Signature valid?', signatureValid)
 
       if (!signatureValid) {
         setStatus('invalid')
-        setErrorMessage('Invalid signature')
+        setErrorMessage(`Invalid signature (sig: ${ticket.signature?.substring(0, 20)}...)`)
         setTicketInfo(ticket)
         setTimeout(reset, 4000)
         return
@@ -302,13 +315,32 @@ export default function TrainValidator() {
                   )}
 
                   {cardData && (
-                    <div className="text-sm text-red-200 mt-3">
-                      <p>Card: {cardData.cardUid}</p>
+                    <div className="text-sm text-yellow-200 border-t border-red-700 pt-3 mt-3">
+                      <p className="font-mono">Card UID: {cardData.cardUid}</p>
+                      {cardData.credits > 0 && (
+                        <p className="mt-2 text-yellow-300 font-semibold">
+                          💰 Card Balance: CHF {cardData.credits}
+                        </p>
+                      )}
+                      {cardData.credits > 0 && errorMessage.includes('no ticket') && (
+                        <p className="mt-2 text-yellow-400 text-xs">
+                          ℹ️ You have credits but need to purchase a ticket at the kiosk first
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
 
-                <p className="text-gray-400">Please contact station staff</p>
+                {cardData && cardData.credits > 0 && errorMessage.includes('no ticket') ? (
+                  <Link
+                    to={`/kiosk?cardId=${cardData.cardUid}`}
+                    className="inline-block px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
+                  >
+                    → Purchase Ticket at Kiosk
+                  </Link>
+                ) : (
+                  <p className="text-gray-400">Please contact station staff</p>
+                )}
               </div>
             )}
           </div>

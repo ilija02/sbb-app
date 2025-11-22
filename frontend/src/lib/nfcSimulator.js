@@ -3,8 +3,34 @@
  * Simulates physical NFC card read/write without hardware
  */
 
-// Simulated NFC card storage (in-memory for demo)
-let virtualCards = {};
+const STORAGE_KEY = 'sbb_virtual_cards';
+
+/**
+ * Load virtual cards from localStorage
+ */
+function loadCards() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch (error) {
+    console.error('Failed to load cards from localStorage:', error);
+    return {};
+  }
+}
+
+/**
+ * Save virtual cards to localStorage
+ */
+function saveCards(cards) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
+  } catch (error) {
+    console.error('Failed to save cards to localStorage:', error);
+  }
+}
+
+// Get cards from localStorage (persistent across page navigation)
+let virtualCards = loadCards();
 
 /**
  * Simulate writing ticket to NFC card
@@ -15,6 +41,9 @@ let virtualCards = {};
  */
 export async function writeToCard(cardId, ticketData, signature) {
   await delay(800); // Simulate NFC write delay
+
+  // Reload from localStorage to get latest data
+  virtualCards = loadCards();
 
   if (!virtualCards[cardId]) {
     virtualCards[cardId] = {
@@ -37,6 +66,9 @@ export async function writeToCard(cardId, ticketData, signature) {
   app.files[fileIndex] = ticketData;
   app.files[fileIndex + 1] = { signature };
 
+  // Persist to localStorage
+  saveCards(virtualCards);
+
   return true;
 }
 
@@ -48,9 +80,22 @@ export async function writeToCard(cardId, ticketData, signature) {
 export async function readFromCard(cardId) {
   await delay(300); // Simulate NFC read delay
 
+  // Reload from localStorage to get latest data
+  virtualCards = loadCards();
+
   const card = virtualCards[cardId];
-  if (!card || !card.applications["0x5342"]) {
+  if (!card) {
     return null;
+  }
+
+  // Return basic card info even if no tickets yet
+  if (!card.applications || !card.applications["0x5342"]) {
+    return {
+      cardUid: card.uid,
+      cardType: card.type,
+      credits: card.credits || 0,
+      tickets: [],
+    };
   }
 
   const app = card.applications["0x5342"];
@@ -89,6 +134,9 @@ export async function readFromCard(cardId) {
 export async function addCredits(cardId, amount) {
   await delay(500); // Simulate NFC write delay
 
+  // Reload from localStorage to get latest data
+  virtualCards = loadCards();
+
   if (!virtualCards[cardId]) {
     virtualCards[cardId] = {
       uid: cardId,
@@ -99,6 +147,10 @@ export async function addCredits(cardId, amount) {
   }
 
   virtualCards[cardId].credits = (virtualCards[cardId].credits || 0) + amount;
+  
+  // Persist to localStorage
+  saveCards(virtualCards);
+  
   return virtualCards[cardId].credits;
 }
 
@@ -111,6 +163,9 @@ export async function addCredits(cardId, amount) {
  */
 export async function deductCredits(cardId, amount) {
   await delay(300);
+
+  // Reload from localStorage to get latest data
+  virtualCards = loadCards();
 
   const card = virtualCards[cardId];
   if (!card) {
@@ -125,6 +180,10 @@ export async function deductCredits(cardId, amount) {
   }
 
   card.credits = currentBalance - amount;
+  
+  // Persist to localStorage
+  saveCards(virtualCards);
+  
   return card.credits;
 }
 
@@ -135,6 +194,9 @@ export async function deductCredits(cardId, amount) {
  */
 export async function getBalance(cardId) {
   await delay(200);
+
+  // Reload from localStorage to get latest balance
+  virtualCards = loadCards();
 
   const card = virtualCards[cardId];
   return card ? card.credits || 0 : 0;
@@ -158,6 +220,8 @@ export function generateVirtualCardId() {
  * @returns {boolean}
  */
 export function isCardPresent(cardId) {
+  // Reload from localStorage to check latest data
+  virtualCards = loadCards();
   return virtualCards[cardId] !== undefined;
 }
 
@@ -166,6 +230,8 @@ export function isCardPresent(cardId) {
  * @returns {object}
  */
 export function getAllCards() {
+  // Reload from localStorage to ensure fresh data
+  virtualCards = loadCards();
   return virtualCards;
 }
 
@@ -175,6 +241,7 @@ export function getAllCards() {
  */
 export function clearAllCards() {
   virtualCards = {};
+  saveCards(virtualCards);
 }
 
 /**

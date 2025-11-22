@@ -1,5 +1,24 @@
 # Use Cases: Anonymous Ticketing System
 
+## Physical Interactions: When to Tap
+
+### Card Tapping Timeline
+```
+Station → Kiosk → Platform → Train → Conductor
+  [BUY]    [TAP]   [TAP]     [RIDE]   [TAP]
+           Card    Card              Card
+           placed  tapped            if checked
+           for     briefly           
+           1-2s    <1s               
+```
+
+### Where NFC Readers Are
+1. **Kiosk**: Flat horizontal surface (waist height) - "Place card here"
+2. **Platform Validator**: Vertical post (chest height) - "Tap card here"  
+3. **Conductor Handheld**: Back of tablet device - "Please show card"
+
+---
+
 ## Use Case 1: Mobile App Purchase (Smartphone NFC)
 
 ### Flow
@@ -102,11 +121,61 @@ validator.checkBloomFilter(ticket.ticket_id) // Already used today?
 
 ## Use Case 2: Physical NFC Card Purchase
 
-### Flow
+### Physical Flow (Detailed)
+
+**Step 1: Buy Credits at Kiosk**
+```
+User Action:     Place card on kiosk reader (marked "📱 TAP HERE")
+Hold Duration:   1-2 seconds until beep
+Kiosk Reads:     Card UID, current balance
+User Selects:    Amount (e.g., CHF 100)
+User Pays:       Cash (inserted into slot)
+Backend Logs:    "Cash payment: CHF 100" (no card UID, no name)
+Kiosk Writes:    Credits to card's secure storage
+User Action:     Remove card when "✅ Done" appears
+```
+
+**Step 2: Buy Ticket at Kiosk**
+```
+User Action:     Place same card on reader again
+Hold Duration:   1-2 seconds until beep
+Kiosk Reads:     Current balance (CHF 100)
+User Selects:    Route (Zurich → Bern, CHF 55)
+Card Generates:  Random ticket_id, blinds it
+Backend Signs:   Blinded token (never sees ticket_id or card UID)
+Card Unblinds:   Signature
+Kiosk Writes:    Ticket + signature to card
+Kiosk Updates:   Balance to CHF 45
+User Action:     Remove card when done
+```
+
+**Step 3: Validate at Platform**
+```
+User Action:     Tap card on platform validator (yellow post)
+Hold Duration:   < 1 second (brief tap)
+Validator Reads: Ticket + signature from card
+Validator Checks: Signature valid? Expired? Revoked?
+Validator Logs:  ticket_id to bloom filter (local only)
+Validator Shows: GREEN LED + beep ✅
+User Action:     Proceed to train (no gate/barrier)
+```
+
+**Step 4: Random Conductor Check**
+```
+Conductor:       "Ticket, please"
+User Action:     Hand card or tap on conductor's handheld
+Hold Duration:   1-2 seconds
+Handheld Reads:  Ticket + signature from card
+Handheld Checks: Signature valid? Was it validated? Used elsewhere today?
+Bloom Filter:    Check if ticket_id seen on another train → FRAUD
+Result:          Valid → OK | Invalid → CHF 100 fine
+```
+
+### Flow Summary
 1. User buys card at kiosk, pays cash CHF 100 → generic credits
 2. User selects route at kiosk → kiosk generates `ticket_id`, blinds it
 3. Backend signs blinded token
-4. Kiosk unblinds signature, writes to card (Mifare DeSFire EV3)
+4. Kiosk unblinds signature, writes to card (Mifare DESFire EV3)
 5. User voluntarily taps card at platform validator → offline check → green light
 6. Conductor checks during ride → taps card → verifies signature → or issues CHF 100 fine
 
