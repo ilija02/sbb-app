@@ -1,14 +1,21 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import Wallet from './pages/Wallet'
 import Validator from './pages/Validator'
+import KioskPurchase from './pages/KioskPurchase'
+import TrainValidator from './pages/TrainValidator'
 
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/wallet" element={<Wallet />} />
+        {/* V3.0 Routes - Physical Cards + NFC */}
+        <Route path="/kiosk" element={<KioskPurchase />} />
+        <Route path="/train-validator" element={<TrainValidator />} />
+        
+        {/* V2.0 Conductor Handheld */}
         <Route path="/validator" element={<Validator />} />
-        <Route path="/" element={<Navigate to="/wallet" replace />} />
+        
+        {/* Default to V3.0 Kiosk */}
+        <Route path="/" element={<Navigate to="/kiosk" replace />} />
       </Routes>
     </Router>
   )

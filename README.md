@@ -1,158 +1,518 @@
-# Anonymous Ticketing POC
+# Anonymous Ticketing System# Anonymous Ticketing System# Anonymous Ticketing POC
 
-**Proof-of-Concept** for an anonymous ticketing system addressing real-world Swiss public transport requirements (BLS, A-Welle) with cryptographic privacy guarantees.
 
-## ⚠️ Implementation Status (November 22, 2025)
 
-| Component                  | Status            | Notes                                    |
-| -------------------------- | ----------------- | ---------------------------------------- |
-| **Frontend (Developer B)** | ✅ **COMPLETE**    | Wallet + Validator PWAs fully functional |
-| **Backend (Developer A)**  | ❌ **NOT STARTED** | API endpoints not implemented            |
-| **Demo Capability**        | ✅ **READY**       | Mock mode enables full demo              |
-| **Production Ready**       | ⏳ **PENDING**     | Requires backend completion              |
+**Privacy-preserving public transport ticketing** using blind signatures and offline validation.
 
-**TL;DR**: Frontend exceeds specification with HID-style validation bonus features. Backend not started. System fully demo-able in mock mode.
 
-📊 **[Read Complete Implementation Audit →](./IMPLEMENTATION_AUDIT.md)**  
-*Includes: 10 documented use cases, architecture alignment, gap analysis*
 
-## What This Is
+## What It Does**Privacy-preserving public transport ticketing** using blind signatures and offline validation.**Proof-of-Concept** for an anonymous ticketing system addressing real-world Swiss public transport requirements (BLS, A-Welle) with cryptographic privacy guarantees.
 
-A **three-component digital ticketing system** inspired by **HID Physical Access Control**:
 
-1. **HID App / Physical Card** - NFC cards OR smartphones (passenger credentials)
-2. **Validator Machine** - At train doors (NFC readers, always online)
+
+A two-step ticketing system that decouples payment from travel:
+
+
+
+1. **Buy Credits** → Pay with cash/card → Get anonymous credits on NFC card## What It Does## ⚠️ Implementation Status (November 22, 2025)
+
+2. **Buy Ticket** → Use credits → Get cryptographically signed ticket
+
+3. **Self-Validate** → Tap at platform validator → Green light (honor system)
+
+4. **Random Checks** → Conductor verifies → Or issues CHF 100+ fine
+
+A two-step ticketing system that decouples payment from travel:| Component                  | Status            | Notes                                    |
+
+**Privacy Guarantee**: Backend cannot link your payment to your travel routes.  
+
+**Compliance Model**: Honor system + spot checks + heavy fines (like current Swiss system)| -------------------------- | ----------------- | ---------------------------------------- |
+
+
+
+## How It Works1. **Buy Credits** → Pay with cash/card → Get anonymous credits on NFC card| **Frontend (Developer B)** | ✅ **COMPLETE**    | Wallet + Validator PWAs fully functional |
+
+
+
+### Key Innovation: Blind Signatures2. **Buy Ticket** → Use credits → Get cryptographically signed ticket| **Backend (Developer A)**  | ❌ **NOT STARTED** | API endpoints not implemented            |
+
+
+
+```3. **Validate** → Tap card → Offline signature verification → Board train| **Demo Capability**        | ✅ **READY**       | Mock mode enables full demo              |
+
+Purchase Credits:    Backend sees → "Payment: 100 CHF" (generic)
+
+Generate Ticket:     Card creates → ticket_id (random)| **Production Ready**       | ⏳ **PENDING**     | Requires backend completion              |
+
+                     Card blinds → blind(ticket_id)
+
+                     Backend signs → sign(blind(ticket_id))  ← Never sees original!**Privacy Guarantee**: Backend cannot link your payment to your travel routes.
+
+                     Card unblinds → signature(ticket_id)
+
+Validation:          Validator verifies → signature offline**TL;DR**: Frontend exceeds specification with HID-style validation bonus features. Backend not started. System fully demo-able in mock mode.
+
+                     Backend never told → where/when you traveled
+
+```## How It Works
+
+
+
+**Result**: Backend knows you bought credits, but not which routes you used them for.📊 **[Read Complete Implementation Audit →](./IMPLEMENTATION_AUDIT.md)**  
+
+
+
+## Components### Key Innovation: Blind Signatures*Includes: 10 documented use cases, architecture alignment, gap analysis*
+
+
+
+### 1. Kiosk (Purchase Credits or Tickets)
+
+- Buy generic credits with cash/card
+
+- Purchase tickets using on-card credits```🎮 **[Read V3.0 Demo Guide →](./V3_DEMO_GUIDE.md)** ⭐ **NEW**  
+
+- NFC card read/write
+
+Purchase Credits:    Backend sees → "Payment: 100 CHF" (generic)*Complete demo script: Kiosk purchase → Train validation | 3-minute flow | No hardware needed*
+
+### 2. Platform Validator (Self-Service)
+
+- NFC tap at platform/station entranceGenerate Ticket:     Card creates → ticket_id (random)
+
+- Offline signature verification (< 500ms)
+
+- Green/red LED indicator                     Card blinds → blind(ticket_id)## What This Is
+
+- Logs validation to bloom filter
+
+- **No physical barrier** (honor system)                     Backend signs → sign(blind(ticket_id))  ← Never sees original!
+
+
+
+### 3. Conductor Handheld (Enforcement)                     Card unblinds → signature(ticket_id)A **three-component digital ticketing system** inspired by **HID Physical Access Control**:
+
+- Random spot checks during ride
+
+- Same offline validationValidation:          Validator verifies → signature offline
+
+- Detects duplicate/invalid tickets
+
+- Issues CHF 100+ fine for violations                     Backend never told → where/when you traveled1. **HID App / Physical Card** - NFC cards OR smartphones (passenger credentials)
+
+- Syncs bloom filter with validators
+
+```2. **Validator Machine** - At train doors (NFC readers, always online)
+
+## Architecture
+
 3. **Conductor Handheld** - Manual checking (NFC readers OR QR scanner)
 
-### Core Security: HSM-Backed Credentials
+```
 
-- **Physical NFC Cards**: Mifare DESFire EV3 with secure element (tamper-proof)
-- **Smartphone Support**: NFC HCE (Android) / Wallet (iOS) with secure storage
-- **All credentials** signed by HSM (AWS CloudHSM / Thales Luna)
-- **Validators** verify offline using cached HSM public key
-- **Challenge-response** protocol prevents cloning and replay attacks
+┌─────────────────────────────────────────────────┐**Result**: Backend knows you bought credits, but not which routes you used them for.
 
-**Key Benefits**:
-✅ **Cannot be cloned** (secure element hardware)  
-✅ **No PII visible** to conductors (only crypto proofs)  
-✅ **Works offline** (validators cache credentials)  
-✅ **Supports both** cards and smartphones  
-✅ **HSM-backed** production-grade security  
-✅ **Cash compliance** via anonymous prepaid cards
+│                   KIOSK                         │
 
-**Context**: Directly implements BLS/A-Welle's cashless transition strategy (Dec 2025 rollout), addressing constitutional concerns and discrimination prevention.
+│  1. Buy Credits (Payment → Generic CHF)         │### Core Security: HSM-Backed Credentials
 
-📖 **[Read Architecture V3.0 (Simplified - Physical Cards + HSM) →](./ARCHITECTURE_V3_SIMPLIFIED.md)** ⭐ **LATEST**  
-*Three components: Physical cards/phones + Validators + Conductor handhelds | HSM mandatory*
+│  2. Buy Ticket (Credits → Blinded Signature)    │
 
-📘 **[Read Use Cases V3.0 →](./USE_CASES_V3.md)** ⭐ **LATEST**  
-*10 use cases for physical cards + HSM | Multi-use cards | Anonymous purchases with blind signatures*
+└─────────────────────────────────────────────────┘## Components
 
-📘 **[Read Use Cases V2.0 (Device-Binding) →](./USE_CASES.md)**  
-*Previous: Smartphone-only with device binding*
+                        ↓
 
-� **[Read Architecture V2.0 (Device-Focused) →](./ARCHITECTURE_V2.md)**  
-*Previous: Device binding + HSM integration | Optional: Blind signatures*
+           (NFC Card with Credits + Ticket)- **Physical NFC Cards**: Mifare DESFire EV3 with secure element (tamper-proof)
 
-�📖 **[Read Original Architecture (Blind Signature-Focused) →](./ARCHITECTURE.md)**  
-*Initial design: Blind signatures, BLS alignment, legal considerations*
+                        ↓
 
-🎤 **[Read Pitch Deck →](./PITCH_DECK.md)**  
-*Includes: business case, demo script, $136M/year ROI, hardware requirements*
+┌─────────────────────────────────────────────────┐### 1. Kiosk (Purchase Credits or Tickets)- **Smartphone Support**: NFC HCE (Android) / Wallet (iOS) with secure storage
 
-📊 **[Read Implementation Audit →](./IMPLEMENTATION_AUDIT.md)**  
-*Includes: status matrix, gap analysis, demo readiness*
+│           PLATFORM VALIDATOR (Honor)            │
 
-## Key Features
+│  - Tap card → Read ticket + signature           │- Buy generic credits with cash/card- **All credentials** signed by HSM (AWS CloudHSM / Thales Luna)
 
-### Hardware Security
-✅ **Physical NFC cards** — Mifare DESFire EV3 with secure element (AES-128)  
-✅ **Cannot be cloned** — tamper-resistant hardware prevents duplication  
-✅ **HSM credential signing** — all tickets signed by AWS CloudHSM / Thales Luna  
-✅ **Challenge-response** — NFC proximity validation protocol  
-✅ **Anti-replay** — each challenge single-use, time-limited
+│  - Verify signature offline (HSM public key)    │
 
-### Dual Mode Support
-✅ **Physical cards** — for elderly, tourists, children (no smartphone needed)  
-✅ **Smartphone NFC** — Android HCE / iOS Wallet for tech-savvy users  
-✅ **Over-the-air provisioning** — smartphones receive tickets via Internet  
-✅ **Kiosk provisioning** — physical cards written at ticket counters
+│  - Log to bloom filter (prevent reuse)          │- Purchase tickets using on-card credits- **Validators** verify offline using cached HSM public key
 
-### Privacy & Compliance
-✅ **No PII visible** — conductor never sees personal information  
-✅ **Legal compliance** — anonymous prepaid cards (Swiss cash requirement)  
-✅ **Anti-discrimination** — accessible to all demographics  
-✅ **GDPR compliant** — minimal data collection, right to deletion
+│  - Show green/red LED (no physical barrier)     │
 
-### Operational
-✅ **Offline validation** — validators work in train tunnels (cached public key)  
-✅ **Always online validators** — 4G/5G sync to backend  
-✅ **Conductor override** — manual validation capability  
-✅ **Production-aligned** — solves real BLS cashless controversy
+└─────────────────────────────────────────────────┘- NFC card read/write- **Challenge-response** protocol prevents cloning and replay attacks
 
-## Technology Stack
+                        ↓
 
-### Hardware Layer
-- **Physical Cards**: NXP Mifare DESFire EV3 (ISO 14443-A, AES-128 secure element)
-- **NFC Readers**: ACR122U or similar (13.56 MHz, contactless)
-- **Validator Machines**: Raspberry Pi 4 / Intel NUC + 4G/5G modem
-- **Conductor Handhelds**: Tablets with USB NFC readers or built-in NFC
+┌─────────────────────────────────────────────────┐
 
-### Security Layer (Mandatory)
-- **HSM Integration**: AWS CloudHSM / Azure Key Vault / Thales Luna (FIPS 140-2 L3)
-- **Credential Signing**: RSA-2048, SHA-256
-- **Challenge-Response**: HMAC-SHA256 via NFC
-- **Secure Element**: Hardware-backed credential storage
+│         CONDUCTOR HANDHELD (Enforcement)        │
 
-### Application Layer
-- **Backend**: FastAPI + PostgreSQL (tickets, validations, revocations)
-- **Frontend (Wallet)**: React 18 PWA with NFC HCE support
-- **Frontend (Validator)**: React 18 PWA with NFC reader integration
-- **Frontend (Conductor)**: Tablet app with NFC validation
+│  - Random spot checks during ride               │### 2. Train Door Validator (Automated)**Key Benefits**:
 
-### Communication
-- **NFC**: ISO 14443-A (contactless cards and smartphones)
-- **Cellular**: 4G/5G for validator sync to backend
-- **HTTPS**: TLS 1.3 for all Internet communication
+│  - Same offline validation                      │
 
-### Deployment
-- **Development**: Docker Compose (full-stack local) + HSM simulator
-- **Production**: AWS (CloudHSM + EC2 + RDS) or Azure (Key Vault + VMs)
+│  - Check bloom filter (detect duplicates)       │- NFC tap at train entrance✅ **Cannot be cloned** (secure element hardware)  
 
----
+│  - Invalid/duplicate → CHF 100+ fine            │
 
-## Repository Structure
+└─────────────────────────────────────────────────┘- Offline signature verification (< 500ms)✅ **No PII visible** to conductors (only crypto proofs)  
 
 ```
-/ (repo root)
-  docker-compose.yml        # Docker Compose orchestration
-  README.md                 # This file (Developer B guide)
-  ARCHITECTURE.md           # Full architecture spec
-  /backend                  # FastAPI Token Issuer (Developer A)
-    /app
-      main.py
-      /routes
-      /services
-      /crypto
-      /db
-      /models
+
+- Door unlock on valid ticket✅ **Works offline** (validators cache credentials)  
+
+## Privacy Features
+
+✅ **Supports both** cards and smartphones  
+
+| Feature | How It Works |
+
+|---------|-------------|### 3. Conductor Handheld (Manual Check)✅ **HSM-backed** production-grade security  
+
+| **Payment Unlinking** | Credits are generic (no route info at purchase) |
+
+| **Blind Signatures** | Backend signs tickets without seeing `ticket_id` |- NFC tap for inspection✅ **Cash compliance** via anonymous prepaid cards
+
+| **Offline Validation** | Validators never report to backend |
+
+| **No PII Required** | Signature proves legitimacy (like cash) |- Same validation logic as doors
+
+| **Anonymous Credits** | Pay cash → Get credits → Untraceable to routes |
+
+- Override capability for edge cases**Context**: Directly implements BLS/A-Welle's cashless transition strategy (Dec 2025 rollout), addressing constitutional concerns and discrimination prevention.
+
+## Security & Compliance
+
+
+
+| Feature | Implementation |
+
+|---------|---------------|## Architecture📖 **[Read Architecture V3.0 (Simplified - Physical Cards + HSM) →](./ARCHITECTURE_V3_SIMPLIFIED.md)** ⭐ **LATEST**  
+
+| **Anti-Sharing** | Ticket bound to card UID + CHF 100 fine if caught |
+
+| **Anti-Cloning** | Mifare DESFire EV3 encryption (AES-128) |*Three components: Physical cards/phones + Validators + Conductor handhelds | HSM mandatory*
+
+| **Anti-Reuse** | Bloom filters detect duplicate `ticket_id` → Fine |
+
+| **HSM Signatures** | Only HSM can create valid signatures (RSA-2048) |```
+
+| **Cannot Forge** | Signature verification with HSM public key |
+
+| **Compliance Model** | Honor system + random checks + heavy fines |┌─────────────────────────────────────────────────┐📘 **[Read Use Cases V3.0 →](./USE_CASES_V3.md)** ⭐ **LATEST**  
+
+
+
+### Why Honor System Works│                   KIOSK                         │*10 use cases for physical cards + HSM | Multi-use cards | Anonymous purchases with blind signatures*
+
+
+
+**Swiss Model**: Current system already uses honor system with spot checks│  1. Buy Credits (Payment → Generic CHF)         │
+
+- **Validation Rate**: ~90% compliance (existing SBB data)
+
+- **Spot Check Frequency**: 1-2% of rides checked by conductors│  2. Buy Ticket (Credits → Blinded Signature)    │📘 **[Read Use Cases V2.0 (Device-Binding) →](./USE_CASES.md)**  
+
+- **Fine Amount**: CHF 100+ (higher than most tickets)
+
+- **Economic Deterrent**: Fine cost > Ticket cost = Self-interest compliance└─────────────────────────────────────────────────┘*Previous: Smartphone-only with device binding*
+
+
+
+**This System Adds**:                        ↓
+
+- Cryptographic proof (can't forge)
+
+- Duplicate detection (can't share)           (NFC Card with Credits + Ticket)� **[Read Architecture V2.0 (Device-Focused) →](./ARCHITECTURE_V2.md)**  
+
+- Platform validators encourage compliance
+
+- Lower infrastructure cost (no gates/doors)                        ↓*Previous: Device binding + HSM integration | Optional: Blind signatures*
+
+
+
+## Technology Stack┌─────────────────────────────────────────────────┐
+
+
+
+- **Frontend**: React + Vite + Tailwind CSS│              TRAIN VALIDATOR                    │�📖 **[Read Original Architecture (Blind Signature-Focused) →](./ARCHITECTURE.md)**  
+
+- **Backend**: FastAPI + PostgreSQL (not yet implemented)
+
+- **Cards**: Mifare DESFire EV3 (simulated in demo)│  - Tap card → Read ticket + signature           │*Initial design: Blind signatures, BLS alignment, legal considerations*
+
+- **Crypto**: RSA blind signatures, HSM signing
+
+- **Storage**: IndexedDB for offline validation logs│  - Verify signature offline (HSM public key)    │
+
+- **Validators**: LED indicators only (no door mechanisms)
+
+│  - Check expiry, revocation list                │🎤 **[Read Pitch Deck →](./PITCH_DECK.md)**  
+
+## Quick Start
+
+│  - Open door if valid                           │*Includes: business case, demo script, $136M/year ROI, hardware requirements*
+
+```powershell
+
+cd frontend└─────────────────────────────────────────────────┘
+
+npm install
+
+npm run dev                        ↓📊 **[Read Implementation Audit →](./IMPLEMENTATION_AUDIT.md)**  
+
+```
+
+┌─────────────────────────────────────────────────┐*Includes: status matrix, gap analysis, demo readiness*
+
+Visit `http://localhost:5173` to see the demo:
+
+1. Buy credits at kiosk│            CONDUCTOR HANDHELD                   │
+
+2. Purchase ticket using credits
+
+3. Validate at platform validator (green light)│  - Manual ticket check during ride              │## Key Features
+
+4. Random conductor check
+
+│  - Same offline validation                      │
+
+## Use Cases
+
+│  - Fine/override capability                     │### Hardware Security
+
+See **[USE_CASES.md](./USE_CASES.md)** for detailed explanations:
+
+- Mobile app purchases (device binding)└─────────────────────────────────────────────────┘✅ **Physical NFC cards** — Mifare DESFire EV3 with secure element (AES-128)  
+
+- Physical card purchases (card UID binding)
+
+- Anti-sharing mechanisms```✅ **Cannot be cloned** — tamper-resistant hardware prevents duplication  
+
+- Privacy guarantees
+
+- Compliance model explanation✅ **HSM credential signing** — all tickets signed by AWS CloudHSM / Thales Luna  
+
+
+
+## Repository Structure## Privacy Features✅ **Challenge-response** — NFC proximity validation protocol  
+
+
+
+```✅ **Anti-replay** — each challenge single-use, time-limited
+
+/backend              # FastAPI server (not started)
+
+/frontend             # React PWA (complete)| Feature | How It Works |
+
+  /src
+
+    /pages|---------|-------------|### Dual Mode Support
+
+      KioskPurchase.jsx      # Credits & ticket purchase
+
+      TrainValidator.jsx     # Platform validator (LED only)| **Payment Unlinking** | Credits are generic (no route info at purchase) |✅ **Physical cards** — for elderly, tourists, children (no smartphone needed)  
+
+      Validator.jsx          # Conductor handheld (with fines)
+
+    /lib| **Blind Signatures** | Backend signs tickets without seeing `ticket_id` |✅ **Smartphone NFC** — Android HCE / iOS Wallet for tech-savvy users  
+
+      crypto.js              # Blind signature utilities
+
+      nfcSimulator.js        # Virtual NFC card system| **Offline Validation** | Validators never report to backend |✅ **Over-the-air provisioning** — smartphones receive tickets via Internet  
+
+      api.js                 # Backend API (mock mode)
+
+USE_CASES.md          # Detailed use cases| **No PII Required** | Signature proves legitimacy (like cash) |✅ **Kiosk provisioning** — physical cards written at ticket counters
+
+README.md             # This file
+
+```| **Anonymous Credits** | Pay cash → Get credits → Untraceable to routes |
+
+
+
+## Current Status### Privacy & Compliance
+
+
+
+✅ **Complete**: Frontend with full demo (virtual NFC cards)  ## Security Features✅ **No PII visible** — conductor never sees personal information  
+
+❌ **Not Started**: Backend API, database, real NFC hardware  
+
+🎯 **Demo Ready**: Full flow works with simulated cards  ✅ **Legal compliance** — anonymous prepaid cards (Swiss cash requirement)  
+
+⚖️ **Realistic**: Honor system matches existing Swiss model
+
+| Feature | Implementation |✅ **Anti-discrimination** — accessible to all demographics  
+
+## Infrastructure Costs
+
+|---------|---------------|✅ **GDPR compliant** — minimal data collection, right to deletion
+
+**This System** (Honor + Spot Checks):
+
+- Platform validators: CHF 2,000 each × 100 stations = CHF 200K| **Anti-Sharing** | Ticket bound to card UID (hash included in signature) |
+
+- Conductor handhelds: CHF 500 each × 50 units = CHF 25K
+
+- **Total**: ~CHF 225K| **Anti-Cloning** | Mifare DESFire EV3 encryption (AES-128) |### Operational
+
+
+
+**Alternative** (Gates/Doors):| **Anti-Reuse** | Bloom filters detect duplicate `ticket_id` |✅ **Offline validation** — validators work in train tunnels (cached public key)  
+
+- Automated gates: CHF 50,000+ each × 100 stations = CHF 5M+
+
+- Maintenance, power, physical space| **HSM Signatures** | Only HSM can create valid signatures (RSA-2048) |✅ **Always online validators** — 4G/5G sync to backend  
+
+- Accessibility issues (wheelchairs, luggage)
+
+- **Total**: 20x more expensive| **Cannot Forge** | Signature verification with HSM public key |✅ **Conductor override** — manual validation capability  
+
+
+
+**Decision**: Honor system is proven, cheaper, and maintains Swiss tradition.✅ **Production-aligned** — solves real BLS cashless controversy
+
+
+
+## Next Steps## Technology Stack
+
+
+
+1. Implement backend API (FastAPI + PostgreSQL)## Technology Stack
+
+2. Integrate real HSM (AWS CloudHSM / Azure Key Vault)
+
+3. Add physical NFC reader support (ACR122U)- **Frontend**: React + Vite + Tailwind CSS
+
+4. Deploy platform validators with LED indicators
+
+5. Deploy conductor handhelds with fine issuance- **Backend**: FastAPI + PostgreSQL (not yet implemented)### Hardware Layer
+
+
+
+---- **Cards**: Mifare DESFire EV3 (simulated in demo)- **Physical Cards**: NXP Mifare DESFire EV3 (ISO 14443-A, AES-128 secure element)
+
+
+
+**Key Insight**: Traditional systems assume identity is needed for fraud prevention. This system proves **cryptographic signatures can replace identity checks** while providing stronger privacy. Combined with Swiss honor system tradition, physical barriers become unnecessary.- **Crypto**: RSA blind signatures, HSM signing- **NFC Readers**: ACR122U or similar (13.56 MHz, contactless)
+
+
+- **Storage**: IndexedDB for offline validation logs- **Validator Machines**: Raspberry Pi 4 / Intel NUC + 4G/5G modem
+
+- **Conductor Handhelds**: Tablets with USB NFC readers or built-in NFC
+
+## Quick Start
+
+### Security Layer (Mandatory)
+
+```powershell- **HSM Integration**: AWS CloudHSM / Azure Key Vault / Thales Luna (FIPS 140-2 L3)
+
+cd frontend- **Credential Signing**: RSA-2048, SHA-256
+
+npm install- **Challenge-Response**: HMAC-SHA256 via NFC
+
+npm run dev- **Secure Element**: Hardware-backed credential storage
+
+```
+
+### Application Layer
+
+Visit `http://localhost:5173` to see the demo:- **Backend**: FastAPI + PostgreSQL (tickets, validations, revocations)
+
+1. Buy credits at kiosk- **Frontend (Wallet)**: React 18 PWA with NFC HCE support
+
+2. Purchase ticket using credits- **Frontend (Validator)**: React 18 PWA with NFC reader integration
+
+3. Validate at train door- **Frontend (Conductor)**: Tablet app with NFC validation
+
+4. Check with conductor handheld
+
+### Communication
+
+## Use Cases- **NFC**: ISO 14443-A (contactless cards and smartphones)
+
+- **Cellular**: 4G/5G for validator sync to backend
+
+See **[USE_CASES.md](./USE_CASES.md)** for detailed explanations:- **HTTPS**: TLS 1.3 for all Internet communication
+
+- Mobile app purchases (device binding)
+
+- Physical card purchases (card UID binding)### Deployment
+
+- Anti-sharing mechanisms- **Development**: Docker Compose (full-stack local) + HSM simulator
+
+- Privacy guarantees- **Production**: AWS (CloudHSM + EC2 + RDS) or Azure (Key Vault + VMs)
+
+
+
+## Repository Structure---
+
+
+
+```## Repository Structure
+
+/backend              # FastAPI server (not started)
+
+/frontend             # React PWA (complete)```
+
+  /src/ (repo root)
+
+    /pages  docker-compose.yml        # Docker Compose orchestration
+
+      KioskPurchase.jsx      # Credits & ticket purchase  README.md                 # This file (Developer B guide)
+
+      TrainValidator.jsx     # Automated door validation  ARCHITECTURE.md           # Full architecture spec
+
+      Validator.jsx          # Conductor handheld  /backend                  # FastAPI Token Issuer (Developer A)
+
+    /lib    /app
+
+      crypto.js              # Blind signature utilities      main.py
+
+      nfcSimulator.js        # Virtual NFC card system      /routes
+
+      api.js                 # Backend API (mock mode)      /services
+
+USE_CASES.md          # Detailed use cases      /crypto
+
+README.md             # This file      /db
+
+```      /models
+
     Dockerfile
-    requirements.txt
+
+## Current Status    requirements.txt
+
     gen_keys.py            # RSA key generator
-  /frontend                 # React + Vite PWA (Developer B)
-    /src
-      main.jsx
+
+✅ **Complete**: Frontend with full demo (virtual NFC cards)  /frontend                 # React + Vite PWA (Developer B)
+
+❌ **Not Started**: Backend API, database, real NFC hardware    /src
+
+🎯 **Demo Ready**: Full flow works with simulated cards      main.jsx
+
       App.jsx
-      /pages
+
+## Next Steps      /pages
+
         Wallet.jsx
-        Validator.jsx
-      /components
-      /lib
-        crypto.js          # Blind/unblind utilities
+
+1. Implement backend API (FastAPI + PostgreSQL)        Validator.jsx
+
+2. Integrate real HSM (AWS CloudHSM / Azure Key Vault)      /components
+
+3. Add physical NFC reader support (ACR122U)      /lib
+
+4. Deploy to production infrastructure        crypto.js          # Blind/unblind utilities
+
         storage.js         # IndexedDB wrapper
-    Dockerfile
+
+---    Dockerfile
+
     package.json
-    vite.config.js
+
+**Key Insight**: Traditional systems assume identity is needed for fraud prevention. This system proves **cryptographic signatures can replace identity checks** while providing stronger privacy.    vite.config.js
+
     tailwind.config.cjs
   /payment-adapter          # Payment stub (Developer A)
     /app

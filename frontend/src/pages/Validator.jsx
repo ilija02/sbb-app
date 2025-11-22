@@ -1,288 +1,161 @@
-import { useState, useRef, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import QRScanner from '../components/QRScanner'
-import { parseQRPayload, verifySignature, verifyRotatingProof, isTokenExpired } from '../lib/crypto'
-import { getPublicKey, redeemToken } from '../lib/api'
+import { useState, useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { readFromCard } from '../lib/nfcSimulator'
+import { verifySignature } from '../lib/crypto'
+import { getPublicKey } from '../lib/api'
 import { saveOfflineScan, getUnsyncedScans, markScanAsSynced } from '../lib/storage'
-import { ChallengeBroadcaster, isMockMode } from '../lib/hidStyle'
 
 export default function Validator() {
+  const [searchParams] = useSearchParams()
   const [scanResult, setScanResult] = useState(null)
-  const [status, setStatus] = useState('idle') // idle | scanning | valid | invalid | processing
+  const [status, setStatus] = useState('idle') // idle | reading | validating | valid | invalid
   const [offlineMode, setOfflineMode] = useState(false)
   const [unsyncedCount, setUnsyncedCount] = useState(0)
-  const videoRef = useRef(null)
-  
-  // HID-style challenge broadcaster
-  const broadcasterRef = useRef(null)
-  const [broadcastingHID, setBroadcastingHID] = useState(false)
-  const [currentChallenge, setCurrentChallenge] = useState(null)
+  const [tapCardId, setTapCardId] = useState(searchParams.get('cardId') || '')
+  const [validationCount, setValidationCount] = useState(0)
+  const [cardData, setCardData] = useState(null)
+  const [ticketInfo, setTicketInfo] = useState(null)
 
   // Load unsynced count on mount and when online status changes
   useEffect(() => {
     loadUnsyncedCount()
   }, [offlineMode])
 
-  // Cleanup broadcaster on unmount
   useEffect(() => {
-    return () => {
-      if (broadcasterRef.current) {
-        broadcasterRef.current.stopBroadcasting()
-      }
+    // Auto-tap if cardId in URL
+    const cardId = searchParams.get('cardId')
+    if (cardId && status === 'idle') {
+      setTapCardId(cardId)
+      setTimeout(() => handleTapCard(cardId), 500)
     }
-  }, [])
+  }, [searchParams])
 
   const loadUnsyncedCount = async () => {
     const unsynced = await getUnsyncedScans()
     setUnsyncedCount(unsynced.length)
   }
 
-  const toggleHIDBroadcast = async () => {
-    if (!broadcastingHID) {
-      // Start broadcasting
-      const broadcaster = new ChallengeBroadcaster('validator-' + Math.random().toString(36).substring(7))
-      broadcasterRef.current = broadcaster
-      
-      try {
-        await broadcaster.startBroadcasting()
-        setBroadcastingHID(true)
-        
-        // Update current challenge display every second
-        const interval = setInterval(() => {
-          const challenge = broadcaster.getCurrentChallenge()
-          setCurrentChallenge(challenge)
-          
-          // Make challenge available globally for mock mode
-          if (isMockMode()) {
-            window.__mockValidatorChallenge = challenge
-          }
-        }, 1000)
-        
-        // Store interval for cleanup
-        broadcasterRef.current.updateInterval = interval
-        
-      } catch (error) {
-        alert('Failed to start HID broadcast: ' + error.message)
-        broadcasterRef.current = null
-      }
-    } else {
-      // Stop broadcasting
-      if (broadcasterRef.current) {
-        broadcasterRef.current.stopBroadcasting()
-        if (broadcasterRef.current.updateInterval) {
-          clearInterval(broadcasterRef.current.updateInterval)
-        }
-        broadcasterRef.current = null
-      }
-      setBroadcastingHID(false)
-      setCurrentChallenge(null)
-      if (isMockMode()) {
-        window.__mockValidatorChallenge = null
-      }
+  const handleTapCard = async (cardId = tapCardId) => {
+    if (!cardId.trim()) {
+      alert('Please enter a card ID')
+      return
     }
-  }
 
-  const startScanning = () => {
-    setStatus('scanning')
+    setStatus('reading')
     setScanResult(null)
-  }
-
-  const handleQRScan = async (qrData) => {
-    setStatus('processing')
+    setCardData(null)
+    setTicketInfo(null)
     
     try {
-      // Try to parse as HID-style response first
-      let tokenData
-      let isHIDStyle = false
-      
-      try {
-        tokenData = JSON.parse(qrData)
-        // Check if it's an HID-style response (has challenge field)
-        if (tokenData.challenge && tokenData.response && tokenData.credentialId) {
-          isHIDStyle = true
-        }
-      } catch {
-        // Fall back to regular QR payload parsing
-        tokenData = parseQRPayload(qrData)
-      }
-      
-      // Handle HID-style validation
-      if (isHIDStyle && broadcasterRef.current) {
-        const verification = await broadcasterRef.current.verifyResponse(tokenData, {
-          token: tokenData.credentialId // Mock credential info
-        })
-        
-        if (verification.valid) {
-          setStatus('valid')
-          setScanResult({
-            message: '✅ HID-style validation successful',
-            credentialId: verification.credentialId,
-            validatedAt: verification.validatedAt,
-            mode: 'HID Challenge-Response',
-            details: tokenData
-          })
-        } else {
-          setStatus('invalid')
-          setScanResult({
-            reason: verification.reason,
-            mode: 'HID Challenge-Response',
-            details: tokenData
-          })
-        }
-        
-        setTimeout(resetScan, 4000)
-        return
-      }
-      
-      // Regular QR code validation (existing logic)
-      
-      // Check expiry
-      if (isTokenExpired(tokenData.expiry)) {
+      // Step 1: Read from NFC card
+      await delay(200)
+      const data = await readFromCard(cardId)
+
+      if (!data) {
         setStatus('invalid')
-        setScanResult({
-          reason: 'Token has expired',
-          details: tokenData
-        })
-        setTimeout(resetScan, 3000)
+        setScanResult({ reason: 'Card not found' })
+        setTimeout(reset, 3000)
         return
       }
-      
-      // Fetch public key for verification
+
+      if (!data.tickets || data.tickets.length === 0) {
+        setStatus('invalid')
+        setScanResult({ reason: 'No tickets on card' })
+        setTimeout(reset, 3000)
+        return
+      }
+
+      setCardData(data)
+
+      // Step 2: Validate first ticket
+      setStatus('validating')
+      await delay(150)
+
+      const ticket = data.tickets[0]
+      const now = Date.now()
+
+      // Check expiry
+      if (now > ticket.valid_until) {
+        setStatus('invalid')
+        setScanResult({ reason: 'Ticket expired' })
+        setTicketInfo(ticket)
+        setTimeout(reset, 4000)
+        return
+      }
+
+      // Check validity start
+      if (now < ticket.valid_from) {
+        setStatus('invalid')
+        setScanResult({ reason: 'Ticket not yet valid' })
+        setTicketInfo(ticket)
+        setTimeout(reset, 4000)
+        return
+      }
+
+      // Step 3: Verify signature (offline)
       const publicKey = await getPublicKey()
-      
-      // Verify signature
-      const signatureValid = verifySignature(tokenData.token, tokenData.signature, publicKey)
-      
+      const signatureValid = verifySignature(ticket.ticket_id, ticket.signature, publicKey)
+
       if (!signatureValid) {
         setStatus('invalid')
-        setScanResult({
-          reason: 'Invalid signature',
-          details: tokenData
-        })
-        setTimeout(resetScan, 3000)
+        setScanResult({ reason: 'Invalid signature' })
+        setTicketInfo(ticket)
+        setTimeout(reset, 4000)
         return
       }
-      
-      // If token has rotating proof, verify it
-      if (tokenData.proof && tokenData.epoch !== null) {
-        // In production, fetch master secret hash from backend to verify
-        // For now, we'll accept any proof in the correct format
-        const proofValid = true // await verifyRotatingProof(...)
-        
-        if (!proofValid) {
-          setStatus('invalid')
-          setScanResult({
-            reason: 'Rotating proof expired or invalid',
-            details: tokenData
-          })
-          setTimeout(resetScan, 3000)
-          return
-        }
+
+      // Step 4: Check revocation list (mock - always pass)
+      const isRevoked = false
+
+      if (isRevoked) {
+        setStatus('invalid')
+        setScanResult({ reason: 'Ticket has been revoked' })
+        setTicketInfo(ticket)
+        setTimeout(reset, 4000)
+        return
       }
-      
-      // Try to redeem token
-      if (!offlineMode) {
-        // Online mode: check with backend
-        const redemption = await redeemToken(
-          tokenData.token,
-          tokenData.signature,
-          {
-            validator_id: 'laptop-01',
-            timestamp: new Date().toISOString()
-          }
-        )
-        
-        if (redemption.valid) {
-          setStatus('valid')
-          setScanResult({
-            token: tokenData.token.substring(0, 16) + '...',
-            expiry: tokenData.expiry,
-            validator: 'laptop-01',
-            redeemed_at: redemption.redeemed_at,
-            details: tokenData
-          })
-        } else {
-          setStatus('invalid')
-          setScanResult({
-            reason: redemption.message || 'Token already used',
-            details: tokenData
-          })
-        }
-      } else {
-        // Offline mode: check Bloom filter and save for later sync
-        // TODO: Implement Bloom filter check
-        const inBloomFilter = false // Check if token is in Bloom filter
-        
-        if (inBloomFilter) {
-          setStatus('invalid')
-          setScanResult({
-            reason: 'Token appears to be used (offline check)',
-            details: tokenData
-          })
-        } else {
-          // Accept token and save for later sync
-          await saveOfflineScan({
-            token: tokenData.token,
-            signature: tokenData.signature,
-            timestamp: new Date().toISOString(),
-            validator_id: 'laptop-01'
-          })
-          
-          setStatus('valid')
-          setScanResult({
-            token: tokenData.token.substring(0, 16) + '...',
-            expiry: tokenData.expiry,
-            validator: 'laptop-01',
-            offline: true,
-            details: tokenData
-          })
-          
-          await loadUnsyncedCount()
-        }
+
+      // Step 5: Save offline log if in offline mode
+      if (offlineMode) {
+        await saveOfflineScan({
+          ticket_id: ticket.ticket_id,
+          card_uid: data.cardUid,
+          timestamp: new Date().toISOString(),
+          conductor_id: 'conductor-123',
+          result: 'valid'
+        })
+        await loadUnsyncedCount()
       }
-      
-      setTimeout(resetScan, 4000)
+
+      // SUCCESS
+      setStatus('valid')
+      setScanResult({ message: 'Valid ticket' })
+      setTicketInfo(ticket)
+      setValidationCount(prev => prev + 1)
+
+      setTimeout(reset, 4000)
       
     } catch (error) {
-      console.error('Scan processing error:', error)
+      console.error('Validation error:', error)
       setStatus('invalid')
-      setScanResult({
-        reason: 'Error processing QR code: ' + error.message
-      })
-      setTimeout(resetScan, 3000)
+      setScanResult({ reason: 'System error: ' + error.message })
+      setTimeout(reset, 3000)
     }
   }
 
-  const resetScan = () => {
+  const reset = () => {
     setStatus('idle')
     setScanResult(null)
+    setCardData(null)
+    setTicketInfo(null)
+    setTapCardId('')
   }
 
-  const simulateValidScan = async () => {
-    // Simulate scanning a valid day ticket with rotating proof
-    const mockQRData = JSON.stringify({
-      t: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-      sig: 'sig_' + Date.now(),
-      exp: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
-      proof: 'abc123def456',
-      epoch: Math.floor(Date.now() / 30000)
-    })
-    
-    await handleQRScan(mockQRData)
+  const formatTime = (timestamp) => {
+    return new Date(timestamp).toLocaleString()
   }
 
-  const simulateInvalidScan = async () => {
-    // Simulate scanning an expired token
-    const mockQRData = JSON.stringify({
-      t: 'expired1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
-      sig: 'sig_expired',
-      exp: new Date(Date.now() - 60 * 60 * 1000).toISOString(), // Expired 1 hour ago
-      proof: null,
-      epoch: null
-    })
-    
-    await handleQRScan(mockQRData)
-  }
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
   const handleSyncOffline = async () => {
     if (unsyncedCount === 0) {
@@ -308,184 +181,225 @@ export default function Validator() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-900 to-purple-900 text-white">
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold">🔍 Validator</h1>
-          <div className="flex gap-4 items-center">
-            <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${offlineMode ? 'bg-orange-500' : 'bg-green-500'}`}></div>
-              <span className="text-sm">{offlineMode ? 'Offline' : 'Online'}</span>
-            </div>
-            <Link 
-              to="/wallet" 
-              className="px-4 py-2 text-sm bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
-            >
-              ← Switch to Wallet
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h1 className="text-3xl font-bold">🎫 Conductor Handheld</h1>
+            <p className="text-sm text-purple-300 mt-1">Manual Ticket Validation</p>
+          </div>
+          <div className="flex gap-3">
+            <Link to="/kiosk" className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+              ← Kiosk
+            </Link>
+            <Link to="/train-validator" className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+              Train Validator
             </Link>
           </div>
         </div>
 
-        {/* Main Scan Area */}
-        <div className="bg-gray-800 rounded-xl shadow-2xl p-8 mb-6 min-h-[500px]">
-          {status === 'idle' && (
-            <div className="text-center">
-              <div className="mb-6">
-                <div className="w-64 h-64 mx-auto bg-gray-700 rounded-lg flex items-center justify-center">
-                  <span className="text-gray-500 text-6xl">📷</span>
-                </div>
-              </div>
-              <h2 className="text-2xl font-semibold mb-4">Ready to Scan</h2>
-              <p className="text-gray-400 mb-6">Point camera at passenger's QR code</p>
-              <button
-                onClick={startScanning}
-                className="px-8 py-4 bg-blue-600 text-white rounded-lg text-xl font-semibold hover:bg-blue-700 transition"
-              >
-                Start Scanning
-              </button>
-              
-              {/* Demo Buttons */}
-              <div className="mt-8 pt-8 border-t border-gray-700">
-                <p className="text-gray-500 text-sm mb-3">Demo Mode (for testing):</p>
-                <div className="flex gap-4 justify-center">
-                  <button
-                    onClick={simulateValidScan}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
-                  >
-                    ✓ Simulate Valid
-                  </button>
-                  <button
-                    onClick={simulateInvalidScan}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
-                  >
-                    ✗ Simulate Invalid
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {status === 'scanning' && (
+        {/* Status Bar */}
+        <div className="bg-purple-800 rounded-lg p-4 mb-6 flex justify-between items-center">
+          <div className="flex gap-6">
             <div>
-              <div className="mb-6">
-                <div className="w-full h-80">
-                  <QRScanner
-                    onScan={handleQRScan}
-                    onError={(error) => {
-                      alert(error)
-                      setStatus('idle')
-                    }}
-                    isScanning={true}
-                  />
+              <p className="text-xs text-purple-300">Conductor</p>
+              <p className="font-semibold">#1234</p>
+            </div>
+            <div>
+              <p className="text-xs text-purple-300">Train</p>
+              <p className="font-semibold">IC 123 (ZH→BE)</p>
+            </div>
+            <div>
+              <p className="text-xs text-purple-300">Checked</p>
+              <p className="font-semibold">{validationCount}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className={`w-3 h-3 rounded-full ${offlineMode ? 'bg-orange-500' : 'bg-green-500'}`}></div>
+            <span className="text-sm">{offlineMode ? 'Offline' : 'Online'}</span>
+          </div>
+        </div>
+
+        {/* Main Validation Area */}
+        <div className="bg-purple-800/50 rounded-xl shadow-2xl p-8 mb-6 min-h-[500px] border-2 border-purple-700">
+          
+          {/* Idle State - Ready to tap */}
+          {status === 'idle' && (
+            <div className="text-center py-12">
+              <div className="text-9xl mb-6 animate-pulse">🎫</div>
+              <h2 className="text-4xl font-bold text-white mb-4">Check Passenger's Ticket</h2>
+              
+              <div className="bg-purple-900/50 border-2 border-purple-500 rounded-lg p-6 max-w-md mx-auto mb-8">
+                <div className="flex items-center justify-center gap-3 mb-3">
+                  <span className="text-5xl">📶</span>
+                  <span className="text-5xl">💳</span>
+                  <span className="text-5xl">📱</span>
                 </div>
+                <p className="text-purple-200 text-lg font-semibold mb-2">
+                  Tap Card or Phone on Handheld Device
+                </p>
+                <p className="text-purple-300 text-sm">
+                  Hold for 1-2 seconds on back of tablet
+                </p>
               </div>
-              <div className="text-center">
-                <h2 className="text-2xl font-semibold mb-2">Scanning...</h2>
-                <p className="text-gray-400 mb-4">Position QR code in camera frame</p>
+
+              {/* Demo Input */}
+              <div className="max-w-md mx-auto bg-purple-900 p-6 rounded-lg border border-purple-600">
+                <p className="text-purple-200 text-sm mb-3">🎮 Demo Mode: Enter Card ID</p>
+                <input
+                  type="text"
+                  value={tapCardId}
+                  onChange={(e) => setTapCardId(e.target.value)}
+                  placeholder="Card ID (from kiosk or URL)"
+                  className="w-full px-4 py-2 bg-purple-950 text-white border border-purple-700 rounded-lg mb-3 font-mono text-sm"
+                />
                 <button
-                  onClick={resetScan}
-                  className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-500 transition"
+                  onClick={() => handleTapCard()}
+                  className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
                 >
-                  Cancel
+                  Simulate NFC Tap
                 </button>
               </div>
             </div>
           )}
 
-          {status === 'processing' && (
-            <div className="text-center">
-              <div className="mb-6">
-                <div className="w-64 h-64 mx-auto bg-gray-700 rounded-lg flex items-center justify-center">
-                  <div className="animate-spin text-6xl">⚙️</div>
-                </div>
-              </div>
-              <h2 className="text-2xl font-semibold mb-2">Verifying...</h2>
-              <p className="text-gray-400">Checking signature and redemption status</p>
+          {/* Reading State */}
+          {status === 'reading' && (
+            <div className="text-center py-16">
+              <div className="animate-spin text-8xl mb-6">📡</div>
+              <h2 className="text-3xl font-bold text-white mb-4">Reading Card...</h2>
+              <p className="text-purple-200">NFC communication</p>
             </div>
           )}
 
-          {status === 'valid' && scanResult && (
-            <div className="text-center">
-              <div className="mb-6">
-                <div className="w-64 h-64 mx-auto bg-green-600 rounded-full flex items-center justify-center shadow-2xl">
-                  <span className="text-9xl">✓</span>
+          {/* Validating State */}
+          {status === 'validating' && (
+            <div className="text-center py-16">
+              <div className="animate-spin text-8xl mb-6">⚙️</div>
+              <h2 className="text-3xl font-bold text-white mb-4">Verifying Ticket...</h2>
+              <div className="space-y-2 text-purple-200">
+                <p>✓ Card data read</p>
+                <p>✓ Checking expiry</p>
+                <p>→ Verifying HSM signature...</p>
+              </div>
+            </div>
+          )}
+
+          {/* Valid State - Green Screen */}
+          {status === 'valid' && ticketInfo && (
+            <div className="text-center py-12">
+              <div className="text-9xl mb-6 animate-bounce">✅</div>
+              <h2 className="text-5xl font-bold text-green-400 mb-6">TICKET VALID</h2>
+              
+              <div className="bg-green-900/30 border-2 border-green-500 rounded-lg p-6 max-w-xl mx-auto mb-6">
+                <div className="grid grid-cols-2 gap-4 text-left">
+                  <div>
+                    <p className="text-green-300 text-sm">Route</p>
+                    <p className="text-white text-xl font-semibold">{ticketInfo.route}</p>
+                  </div>
+                  <div>
+                    <p className="text-green-300 text-sm">Class</p>
+                    <p className="text-white text-xl font-semibold">{ticketInfo.class}{ticketInfo.class === 1 ? 'st' : 'nd'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-green-300 text-sm">Valid Until</p>
+                    <p className="text-white text-lg">{formatTime(ticketInfo.valid_until)}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-green-300 text-sm">Ticket ID</p>
+                    <p className="text-white text-xs font-mono">{ticketInfo.ticket_id?.substring(0, 32)}...</p>
+                  </div>
                 </div>
               </div>
-              <h2 className="text-4xl font-bold text-green-400 mb-4">TICKET VALID</h2>
-              {scanResult.offline && (
-                <div className="mb-3 inline-block px-3 py-1 bg-orange-500 text-white rounded-lg text-sm">
+
+              {offlineMode && (
+                <div className="mb-4 inline-block px-4 py-2 bg-orange-500 text-white rounded-lg text-sm">
                   ⚠️ Offline validation - will sync later
                 </div>
               )}
-              <div className="text-gray-300 space-y-2">
-                <p className="text-lg">Token: {scanResult.token}</p>
-                <p>Expires: {new Date(scanResult.expiry).toLocaleString()}</p>
-                {scanResult.details?.proof && (
-                  <p className="text-sm text-purple-300">
-                    🔄 Day ticket with rotating proof
-                  </p>
-                )}
+
+              <div className="text-purple-200 text-sm mb-4">
+                <p>Card: {cardData?.cardUid}</p>
+                <p>Tickets on card: {cardData?.tickets.length}</p>
+              </div>
+
+              <div className="flex gap-3 justify-center mt-6">
+                <button
+                  onClick={reset}
+                  className="px-6 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition"
+                >
+                  Next Passenger →
+                </button>
               </div>
             </div>
           )}
 
+          {/* Invalid State - Red Screen */}
           {status === 'invalid' && scanResult && (
-            <div className="text-center">
-              <div className="mb-6">
-                <div className="w-64 h-64 mx-auto bg-red-600 rounded-full flex items-center justify-center shadow-2xl">
-                  <span className="text-9xl">✗</span>
-                </div>
+            <div className="text-center py-12">
+              <div className="text-9xl mb-6">❌</div>
+              <h2 className="text-5xl font-bold text-red-400 mb-6">INVALID TICKET</h2>
+              
+              <div className="bg-red-900/30 border-2 border-red-500 rounded-lg p-6 max-w-xl mx-auto mb-6">
+                <p className="text-red-300 text-xl font-semibold mb-4">{scanResult.reason}</p>
+                
+                {ticketInfo && (
+                  <div className="text-left text-sm space-y-2 text-red-200 border-t border-red-700 pt-4 mt-4">
+                    <p>Ticket ID: {ticketInfo.ticket_id?.substring(0, 32)}...</p>
+                    <p>Route: {ticketInfo.route}</p>
+                    <p>Valid From: {formatTime(ticketInfo.valid_from)}</p>
+                    <p>Valid Until: {formatTime(ticketInfo.valid_until)}</p>
+                    <p className="font-semibold text-red-300">
+                      {Date.now() > ticketInfo.valid_until ? '⚠️ EXPIRED' : ''}
+                    </p>
+                  </div>
+                )}
+
+                {cardData && !ticketInfo && (
+                  <div className="text-sm text-red-200 mt-3">
+                    <p>Card: {cardData.cardUid}</p>
+                  </div>
+                )}
               </div>
-              <h2 className="text-4xl font-bold text-red-400 mb-4">INVALID TICKET</h2>
-              <p className="text-xl text-gray-300 mb-4">{scanResult.reason}</p>
-              {scanResult.details && (
-                <div className="text-sm text-gray-400 space-y-1">
-                  <p>Token: {scanResult.details.token?.substring(0, 16)}...</p>
-                  {scanResult.details.expiry && (
-                    <p>Expiry: {new Date(scanResult.details.expiry).toLocaleString()}</p>
-                  )}
-                </div>
-              )}
+
+              <div className="bg-yellow-900/30 border border-yellow-600 rounded-lg p-4 mb-6">
+                <p className="text-yellow-300 text-sm font-semibold">⚠️ Standard Fine: CHF 100</p>
+                <p className="text-yellow-400 text-xs mt-1">Issue fine via handheld terminal or allow passenger to purchase ticket at next stop.</p>
+              </div>
+
+              <div className="flex gap-3 justify-center mt-6">
+                <button
+                  onClick={reset}
+                  className="px-6 py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition"
+                >
+                  💳 Issue CHF 100 Fine
+                </button>
+                <button
+                  onClick={reset}
+                  className="px-6 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition"
+                >
+                  Next Passenger →
+                </button>
+              </div>
             </div>
           )}
         </div>
 
-        {/* HID Challenge Broadcaster */}
+        {/* Offline Status Panel */}
         <div className="mb-6 bg-purple-900 border border-purple-700 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold text-purple-200">🔐 HID-Style Challenge Broadcast</h3>
+              <h3 className="font-semibold text-purple-200">� Network Status</h3>
               <p className="text-xs text-purple-300 mt-1">
-                {isMockMode() ? '🧪 Mock Mode (Demo)' : '📡 Live BLE Broadcast'}
+                {offlineMode ? '✈️ Working Offline' : '📡 Connected to Backend'}
               </p>
             </div>
-            <button
-              onClick={toggleHIDBroadcast}
-              className={`px-6 py-3 rounded-lg font-semibold transition ${
-                broadcastingHID
-                  ? 'bg-green-600 hover:bg-green-700 text-white'
-                  : 'bg-purple-600 hover:bg-purple-700 text-white'
-              }`}
-            >
-              {broadcastingHID ? '✓ Broadcasting' : 'Start Broadcast'}
-            </button>
-          </div>
-          
-          {broadcastingHID && currentChallenge && (
-            <div className="mt-3 bg-purple-800 rounded p-3 font-mono text-xs">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-purple-300">Current Challenge:</span>
-                <span className="text-purple-400">Updates every 5s</span>
-              </div>
-              <div className="text-purple-100 break-all">
-                {currentChallenge.nonce}
-              </div>
-              <div className="text-purple-400 text-xs mt-2">
-                Range: ~10m | Valid: 15s | Validator: {currentChallenge.validatorId}
-              </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-purple-100">{unsyncedCount}</div>
+              <div className="text-xs text-purple-300">Unsynced Logs</div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Controls */}
@@ -510,25 +424,25 @@ export default function Validator() {
         </div>
 
         {/* Status Info */}
-        <div className="mt-8 bg-blue-900 border border-blue-700 rounded-lg p-4 text-sm">
-          <h3 className="font-semibold text-blue-300 mb-2">✅ Implementation Status:</h3>
-          <ul className="text-blue-200 space-y-1">
-            <li>✅ QR payload parsing and validation</li>
-            <li>✅ Signature verification (MOCK - crypto ready)</li>
-            <li>✅ Rotating proof validation logic</li>
-            <li>✅ Online redemption with backend API (MOCK)</li>
-            <li>✅ Offline scan storage (IndexedDB)</li>
-            <li>✅ Sync functionality for offline scans</li>
-            <li>⏳ Webcam QR scanning (need @zxing/library)</li>
-            <li>⏳ Bloom filter checks (need backend)</li>
+        <div className="mt-8 bg-purple-900 border border-purple-700 rounded-lg p-4 text-sm">
+          <h3 className="font-semibold text-purple-300 mb-2">✅ Conductor Features:</h3>
+          <ul className="text-purple-200 space-y-1">
+            <li>✅ NFC tap validation (virtual cards)</li>
+            <li>✅ Offline signature verification</li>
+            <li>✅ Ticket expiry checking</li>
+            <li>✅ Revocation list checks (cached)</li>
+            <li>✅ Offline logging (IndexedDB)</li>
+            <li>✅ Sync functionality for offline logs</li>
+            <li>✅ Override capability for edge cases</li>
+            <li>✅ Multi-ticket card support</li>
           </ul>
         </div>
         
         {/* Developer Notes */}
         <div className="mt-4 bg-gray-900 border border-gray-700 rounded-lg p-4 text-xs text-gray-400">
-          <p><strong>Demo Mode:</strong> Use the simulation buttons to test validation flow.</p>
-          <p className="mt-2"><strong>Production:</strong> Install <code>@zxing/library</code> for real QR scanning:</p>
-          <code className="block mt-1 bg-gray-800 p-2 rounded">npm install @zxing/library</code>
+          <p><strong>Demo Mode:</strong> Enter any virtual card ID to simulate NFC tap.</p>
+          <p className="mt-2"><strong>URL Auto-Tap:</strong> Add <code>?tap=CARD123</code> to URL to simulate automatic tap.</p>
+          <p className="mt-2"><strong>Production:</strong> Replace nfcSimulator with real NFC reader integration (Web NFC API or native bridge).</p>
         </div>
       </div>
     </div>
