@@ -1,9 +1,29 @@
 /**
  * NFC Simulator
  * Simulates physical NFC card read/write without hardware
+ * 
+ * PRIVACY MODEL:
+ * - publicUid: NFC protocol UID (always exposed to any reader)
+ * - privateAccountId: HSM-protected account ID (requires authentication)
+ * - Backend never sees publicUid (prevents tracking physical card movements)
  */
 
 const STORAGE_KEY = 'sbb_virtual_cards';
+
+/**
+ * Generate cryptographic challenge for mutual authentication
+ */
+function generateChallenge() {
+  return crypto.randomUUID();
+}
+
+/**
+ * Compute HMAC for authentication (simplified - in production use proper crypto)
+ */
+async function computeHMAC(data, key) {
+  // Simplified: In production, use Web Crypto API HMAC
+  return crypto.randomUUID(); // Mock authentication response
+}
 
 /**
  * Load virtual cards from localStorage
@@ -11,7 +31,18 @@ const STORAGE_KEY = 'sbb_virtual_cards';
 function loadCards() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : {};
+    const cards = stored ? JSON.parse(stored) : {};
+    console.log('[STORAGE] Loaded cards from localStorage:', Object.keys(cards).length, 'cards');
+    if (Object.keys(cards).length > 0) {
+      console.log('[STORAGE] Card IDs:', Object.keys(cards));
+      // Log ticket count for each card
+      Object.entries(cards).forEach(([id, card]) => {
+        const ticketCount = card.applications?.['0x5342']?.files ? 
+          Math.floor(Object.keys(card.applications['0x5342'].files).length / 2) : 0;
+        console.log(`[STORAGE]   - Card ${id}: ${card.credits} CHF, ${ticketCount} tickets`);
+      });
+    }
+    return cards;
   } catch (error) {
     console.error('Failed to load cards from localStorage:', error);
     return {};
@@ -24,6 +55,7 @@ function loadCards() {
 function saveCards(cards) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
+    console.log('[STORAGE] Saved cards to localStorage:', Object.keys(cards).length, 'cards');
   } catch (error) {
     console.error('Failed to save cards to localStorage:', error);
   }
@@ -47,7 +79,16 @@ export async function writeToCard(cardId, ticketData, signature) {
 
   if (!virtualCards[cardId]) {
     virtualCards[cardId] = {
+      // PUBLIC: NFC protocol UID (always exposed - can't be hidden)
       uid: cardId,
+      publicUid: cardId, // Explicitly mark as public
+      
+      // PRIVATE: Account ID for backend operations (HSM protected)
+      privateAccountId: crypto.randomUUID(),
+      
+      // Authentication key (stored in secure element on real card)
+      cardAuthKey: crypto.randomUUID(),
+      
       type: "Mifare DESFire EV3",
       applications: {},
       credits: 0, // Credit balance in CHF
@@ -89,9 +130,10 @@ export async function readFromCard(cardId) {
   }
 
   // Return basic card info even if no tickets yet
+  // NOTE: Only publicUid exposed here (cardUid) - privateAccountId requires auth
   if (!card.applications || !card.applications["0x5342"]) {
     return {
-      cardUid: card.uid,
+      cardUid: card.publicUid || card.uid, // Public UID only
       cardType: card.type,
       credits: card.credits || 0,
       tickets: [],
@@ -118,7 +160,7 @@ export async function readFromCard(cardId) {
   }
 
   return {
-    cardUid: card.uid,
+    cardUid: card.publicUid || card.uid, // Public UID only
     cardType: card.type,
     credits: card.credits || 0,
     tickets,
@@ -215,6 +257,40 @@ export function generateVirtualCardId() {
 }
 
 /**
+ * Create a new virtual card with dual-UID structure
+ * @returns {object} { publicUid, privateAccountId }
+ */
+export function createVirtualCard() {
+  const publicUid = generateVirtualCardId();
+  
+  virtualCards = loadCards();
+  
+  // Initialize new card with dual-UID structure
+  virtualCards[publicUid] = {
+    // PUBLIC: NFC protocol UID (always exposed)
+    uid: publicUid,
+    publicUid: publicUid,
+    
+    // PRIVATE: Account ID for backend operations (HSM protected)
+    privateAccountId: crypto.randomUUID(),
+    
+    // Authentication key (stored in secure element on real card)
+    cardAuthKey: crypto.randomUUID(),
+    
+    type: "Mifare DESFire EV3",
+    applications: {},
+    credits: 0,
+  };
+  
+  saveCards(virtualCards);
+  
+  return {
+    publicUid: publicUid,
+    privateAccountId: virtualCards[publicUid].privateAccountId,
+  };
+}
+
+/**
  * Check if card is present (for tap simulation)
  * @param {string} cardId
  * @returns {boolean}
@@ -242,6 +318,75 @@ export function getAllCards() {
 export function clearAllCards() {
   virtualCards = {};
   saveCards(virtualCards);
+}
+
+/**
+ * Authenticate with card and get private account ID
+ * @param {string} cardId - Public UID (NFC-exposed)
+ * @param {string} readerType - 'kiosk' | 'validator' | 'conductor'
+ * @returns {Promise<object>} { success, privateAccountId?, error? }
+ */
+export async function authenticateCard(cardId, readerType = 'kiosk') {
+  await delay(200); // Simulate authentication delay
+  
+  virtualCards = loadCards();
+  const card = virtualCards[cardId];
+  
+  if (!card) {
+    return { success: false, error: 'Card not found' };
+  }
+  
+  // Only authorized readers can access private account ID
+  const authorizedReaders = ['kiosk']; // Validators don't need private ID
+  
+  if (!authorizedReaders.includes(readerType)) {
+    return { 
+      success: false, 
+      error: 'Reader not authorized for private account access' 
+    };
+  }
+  
+  // Step 1: Reader sends challenge
+  const readerChallenge = generateChallenge();
+  
+  // Step 2: Card responds with HMAC
+  const cardResponse = await computeHMAC(readerChallenge, card.cardAuthKey);
+  
+  // Step 3: Reader verifies (simplified - in production do mutual auth)
+  // In real implementation: card also verifies reader's identity
+  
+  // Step 4: Return private account ID over encrypted channel
+  return {
+    success: true,
+    privateAccountId: card.privateAccountId,
+    publicUid: card.publicUid || card.uid,
+    cardAuthKey: card.cardAuthKey, // For session encryption
+  };
+}
+
+/**
+ * Get public card info (no authentication required)
+ * @param {string} cardId - Public UID
+ * @returns {Promise<object>} Public card data
+ */
+export async function getPublicCardInfo(cardId) {
+  await delay(100);
+  
+  virtualCards = loadCards();
+  const card = virtualCards[cardId];
+  
+  if (!card) {
+    return null;
+  }
+  
+  // Only return public information
+  return {
+    publicUid: card.publicUid || card.uid,
+    cardType: card.type,
+    hasTickets: card.applications?.["0x5042"] ? 
+      Object.keys(card.applications["0x5042"].files || {}).length > 0 : false,
+    // NOTE: Credits NOT exposed without authentication
+  };
 }
 
 /**

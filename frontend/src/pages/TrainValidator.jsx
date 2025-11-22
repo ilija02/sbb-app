@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { readFromCard } from '../lib/nfcSimulator'
 import { verifySignature } from '../lib/crypto'
-import { getPublicKey } from '../lib/api'
+import { getPublicKey, validateTicketOnline, queueOfflineValidation, recordValidation, checkNetworkStatus, syncPendingValidations } from '../lib/api'
 
 export default function TrainValidator() {
   const [searchParams] = useSearchParams()
@@ -10,8 +10,29 @@ export default function TrainValidator() {
   const [cardData, setCardData] = useState(null)
   const [ticketInfo, setTicketInfo] = useState(null)
   const [errorMessage, setErrorMessage] = useState('')
+  const [isOnline, setIsOnline] = useState(checkNetworkStatus())
+  const [validationMode, setValidationMode] = useState('online') // online | offline
 
   const [tapCardId, setTapCardId] = useState(searchParams.get('cardId') || '')
+
+  // Monitor network status
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+      syncPendingValidations()
+    }
+    const handleOffline = () => {
+      setIsOnline(false)
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   useEffect(() => {
     // Auto-tap if cardId in URL
@@ -50,19 +71,52 @@ export default function TrainValidator() {
       if (!data.tickets || data.tickets.length === 0) {
         setStatus('invalid')
         setErrorMessage(data.credits > 0 
-          ? `Card has CHF ${data.credits} credits but no ticket. Purchase a ticket at the kiosk first.`
-          : 'No tickets on card. Purchase a ticket at the kiosk first.'
+          ? `Card has CHF ${data.credits} credits but no tickets. You need to: 1) Go to kiosk, 2) Select "Buy Ticket", 3) Choose a route, 4) Pay with your on-card credits. Then come back here to validate.`
+          : 'No tickets on card. Go to the kiosk and purchase a ticket first.'
         )
-        setTimeout(reset, 5000)
+        setTimeout(reset, 8000)
         return
       }
 
-      // Step 2: Validate first ticket
+      // Step 2: Find most recent valid ticket (skip expired/used ones)
       setStatus('validating')
       await delay(200)
 
-      const ticket = data.tickets[0]
       const now = Date.now()
+      
+      // Find the first ticket that is currently valid (not expired, not too early)
+      let ticket = null
+      for (const t of data.tickets) {
+        if (now >= t.valid_from && now <= t.valid_until) {
+          ticket = t
+          break
+        }
+      }
+      
+      // If no valid ticket found, check if all are expired or not yet valid
+      if (!ticket) {
+        const allExpired = data.tickets.every(t => now > t.valid_until)
+        const allTooEarly = data.tickets.every(t => now < t.valid_from)
+        
+        setStatus('invalid')
+        if (allExpired) {
+          setErrorMessage('All tickets on card are expired')
+        } else if (allTooEarly) {
+          setErrorMessage('Tickets not yet valid')
+        } else {
+          setErrorMessage('No valid tickets found on card')
+        }
+        setTicketInfo(data.tickets[0]) // Show first ticket for reference
+        setTimeout(reset, 5000)
+        return
+      }
+      
+      console.log('[VALIDATOR] Selected ticket:', {
+        ticket_id: ticket.ticket_id.substring(0, 20) + '...',
+        valid_from: new Date(ticket.valid_from).toLocaleString(),
+        valid_until: new Date(ticket.valid_until).toLocaleString(),
+        total_tickets_on_card: data.tickets.length
+      })
 
       // Check expiry
       if (now > ticket.valid_until) {
@@ -104,23 +158,82 @@ export default function TrainValidator() {
         return
       }
 
-      // Step 4: Check revocation list (mock - always pass)
-      const isRevoked = false // TODO: Check against cached revocation list
+      // Step 4: Online validation (check for duplicates, fraud)
+      const validatorId = 'VAL-ZH-CENTRAL-001' // Mock validator ID
+      const location = 'Zurich HB Platform 4'
 
-      if (isRevoked) {
-        setStatus('invalid')
-        setErrorMessage('Ticket has been revoked')
-        setTicketInfo(ticket)
-        setTimeout(reset, 4000)
-        return
+      let onlineResult = null
+      let usedOfflineMode = false
+
+      if (isOnline) {
+        try {
+          setValidationMode('online')
+          onlineResult = await validateTicketOnline(ticket, validatorId, location, 'platform')
+          
+          console.log('[ONLINE] Validation result:', onlineResult)
+
+          if (!onlineResult.valid) {
+            setStatus('invalid')
+            setErrorMessage(onlineResult.message || 'Ticket rejected by server')
+            setTicketInfo(ticket)
+            
+            // Record for statistics
+            recordValidation(ticket, validatorId, location, 'platform')
+            
+            setTimeout(reset, 5000)
+            return
+          }
+
+          // Record successful validation
+          recordValidation(ticket, validatorId, location, 'platform')
+
+          // Show warning for day passes with excessive use
+          if (onlineResult.warning) {
+            console.warn(`[WARNING] ${onlineResult.message}`)
+          }
+
+        } catch (error) {
+          console.warn('[ONLINE] Validation failed, falling back to offline:', error)
+          setIsOnline(false) // Treat as offline for this session
+          usedOfflineMode = true
+        }
       }
 
-      // SUCCESS - Log validation
-      setStatus('valid')
-      setTicketInfo(ticket)
+      // Offline fallback: Local bloom filter check
+      if (!isOnline || usedOfflineMode) {
+        setValidationMode('offline')
+        console.log('[OFFLINE] Using local validation')
 
-      // Log to bloom filter (prevent reuse)
-      console.log(`[BLOOM FILTER] Logged ticket_id: ${ticket.ticket_id}`)
+        // For single tickets: Check local bloom filter
+        if (ticket.ticket_type === 'single') {
+          const bloomFilter = getLocalBloomFilter()
+          if (bloomFilter.has(ticket.ticket_id)) {
+            setStatus('invalid')
+            setErrorMessage('Ticket already used (offline check)')
+            setTicketInfo(ticket)
+            
+            // Queue for backend review when online
+            queueOfflineValidation(ticket, validatorId, location, 'duplicate_offline')
+            
+            setTimeout(reset, 5000)
+            return
+          }
+          bloomFilter.add(ticket.ticket_id)
+          saveLocalBloomFilter(bloomFilter)
+        }
+
+        // Queue validation for backend sync
+        queueOfflineValidation(ticket, validatorId, location, 'valid_offline')
+        recordValidation(ticket, validatorId, location, 'platform')
+      }
+
+      // SUCCESS
+      setStatus('valid')
+      setTicketInfo({
+        ...ticket,
+        validation_mode: validationMode,
+        online_result: onlineResult
+      })
 
       // Reset after 4 seconds
       setTimeout(reset, 4000)
@@ -147,12 +260,31 @@ export default function TrainValidator() {
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
+  // Bloom filter helpers (simple Set for demo)
+  const getLocalBloomFilter = () => {
+    const stored = localStorage.getItem('bloom_filter')
+    return stored ? new Set(JSON.parse(stored)) : new Set()
+  }
+
+  const saveLocalBloomFilter = (bloomFilter) => {
+    localStorage.setItem('bloom_filter', JSON.stringify([...bloomFilter]))
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800">
       <div className="container mx-auto px-4 py-8 max-w-5xl">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-white">🎫 Platform Validator</h1>
+          <div>
+            <h1 className="text-3xl font-bold text-white">🎫 Platform Validator</h1>
+            <div className="flex items-center gap-2 mt-2">
+              <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
+              <span className="text-sm text-gray-300">
+                {isOnline ? '🌐 Online Mode' : '📡 Offline Mode'} 
+                {!isOnline && ' - Validations queued for sync'}
+              </span>
+            </div>
+          </div>
           <div className="flex gap-3">
             <Link to="/kiosk" className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
               ← Back to Kiosk
@@ -276,16 +408,31 @@ export default function TrainValidator() {
                 </div>
 
                 <div className="text-gray-400 text-sm mb-4">
-                  <p>Card: {cardData.cardUid}</p>
-                  <p>Tickets on card: {cardData.tickets.length}</p>
+                  {/* PRIVACY: Don't show card UID - only ticket info */}
+                  <p>Tickets found: {cardData.tickets.length}</p>
                 </div>
 
                 {/* Validation Logged */}
                 <div className="mt-8 bg-green-900/30 border border-green-500 rounded-lg p-6">
-                  <p className="text-green-300 text-lg font-semibold mb-2">✅ Validation Logged</p>
-                  <p className="text-green-400 text-sm">
-                    Ticket validated and recorded to bloom filter. Proceed to board train.
+                  <p className="text-green-300 text-lg font-semibold mb-2">
+                    ✅ Validation Logged {ticketInfo.validation_mode === 'online' ? '🌐' : '📡'}
                   </p>
+                  <p className="text-green-400 text-sm">
+                    {ticketInfo.validation_mode === 'online' 
+                      ? 'Ticket validated online. Backend confirmed - no duplicates detected.'
+                      : 'Ticket validated offline. Will sync with backend when connection available.'
+                    }
+                  </p>
+                  {ticketInfo.online_result?.warning && (
+                    <p className="text-yellow-400 text-sm mt-2">
+                      ⚠️ {ticketInfo.online_result.message}
+                    </p>
+                  )}
+                  {ticketInfo.online_result?.validation_count > 1 && ticketInfo.ticket_type === 'day' && (
+                    <p className="text-blue-400 text-xs mt-2">
+                      📊 Day pass - Validation #{ticketInfo.online_result.validation_count} today
+                    </p>
+                  )}
                   <p className="text-green-500 text-xs mt-3">
                     Honor system: Random conductor checks may occur during ride.
                   </p>
@@ -316,7 +463,7 @@ export default function TrainValidator() {
 
                   {cardData && (
                     <div className="text-sm text-yellow-200 border-t border-red-700 pt-3 mt-3">
-                      <p className="font-mono">Card UID: {cardData.cardUid}</p>
+                      {/* PRIVACY: Don't show card UID */}
                       {cardData.credits > 0 && (
                         <p className="mt-2 text-yellow-300 font-semibold">
                           💰 Card Balance: CHF {cardData.credits}
@@ -333,10 +480,10 @@ export default function TrainValidator() {
 
                 {cardData && cardData.credits > 0 && errorMessage.includes('no ticket') ? (
                   <Link
-                    to={`/kiosk?cardId=${cardData.cardUid}`}
+                    to={`/kiosk?cardId=${tapCardId}`}
                     className="inline-block px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
                   >
-                    → Purchase Ticket at Kiosk
+                    → Purchase Ticket at Kiosk (CHF {cardData.credits} available)
                   </Link>
                 ) : (
                   <p className="text-gray-400">Please contact station staff</p>
@@ -376,19 +523,21 @@ export default function TrainValidator() {
               <li>Read ticket from NFC card (ISO 14443-A)</li>
               <li>Check expiry (current_time &lt; valid_until)</li>
               <li>Verify HSM signature (offline, cached public key)</li>
-              <li>Check revocation list (cached, 60KB)</li>
-              <li>Grant access if valid (&lt;300ms total)</li>
+              <li><strong>🌐 Online check:</strong> Duplicate detection, fraud scoring</li>
+              <li><strong>📡 Offline fallback:</strong> Local Bloom filter + queue for sync</li>
+              <li>Grant access if valid (&lt;500ms online, &lt;200ms offline)</li>
             </ol>
           </div>
 
           <div className="bg-purple-900/50 border border-purple-700 rounded-lg p-4 text-sm">
-            <h3 className="font-semibold text-purple-300 mb-2">🔐 Privacy:</h3>
+            <h3 className="font-semibold text-purple-300 mb-2">🔐 Fraud Detection:</h3>
             <ul className="text-purple-200 space-y-1 text-xs">
-              <li>✅ Validator sees ticket_id only</li>
-              <li>✅ Cannot link to payment method</li>
-              <li>✅ Cannot link to purchase location</li>
-              <li>✅ Validation logged but unlinkable</li>
-              <li>✅ Works offline (cached public key)</li>
+              <li>🌐 <strong>Online:</strong> Real-time duplicate detection across all validators</li>
+              <li>📊 Day pass rate limiting (max 20 validations/day)</li>
+              <li>🚨 Single ticket reuse detection (same ticket, multiple validators)</li>
+              <li>📡 <strong>Offline:</strong> Local Bloom filter + deferred sync</li>
+              <li>⚡ Fraud reported to backend when connection available</li>
+              <li>✅ Privacy preserved: Only ticket_id logged, not identity</li>
             </ul>
           </div>
         </div>
@@ -408,7 +557,87 @@ export default function TrainValidator() {
             >
               Buy Another Ticket
             </Link>
+            <button
+              onClick={() => {
+                syncPendingValidations()
+                alert('Sync initiated. Check console for results.')
+              }}
+              disabled={!isOnline}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition"
+            >
+              🔄 Sync Now
+            </button>
+            <button
+              onClick={() => {
+                const newStatus = !isOnline
+                setIsOnline(newStatus)
+                window.dispatchEvent(new Event(newStatus ? 'online' : 'offline'))
+              }}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-xs"
+            >
+              🔧 Simulate {isOnline ? 'Offline' : 'Online'}
+            </button>
           </div>
+        </div>
+
+        {/* Debug Panel - Offline Queue & Fraud Detection */}
+        <div className="mt-4 bg-slate-800 border border-slate-600 rounded-lg p-4 text-sm">
+          <h3 className="font-semibold text-white mb-3">🔧 Debug: Validation Queue & Fraud Detection</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Pending Validations */}
+            <div className="bg-slate-700 rounded p-3">
+              <p className="text-yellow-300 font-semibold mb-2">📡 Pending Sync</p>
+              <div className="font-mono text-xs text-gray-300 max-h-32 overflow-auto">
+                {(() => {
+                  const pending = JSON.parse(localStorage.getItem('pending_validations') || '[]');
+                  const unsynced = pending.filter(v => !v.synced);
+                  if (unsynced.length === 0) {
+                    return <p className="text-gray-500">No pending validations</p>;
+                  }
+                  return (
+                    <div className="space-y-1">
+                      {unsynced.map((v, i) => (
+                        <div key={i} className="border-l-2 border-yellow-500 pl-2">
+                          <p>Ticket: {v.ticket_id?.substring(0, 12)}...</p>
+                          <p className="text-gray-400 text-xs">
+                            {new Date(v.timestamp).toLocaleTimeString()} - {v.local_result}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Fraud Log */}
+            <div className="bg-slate-700 rounded p-3">
+              <p className="text-red-300 font-semibold mb-2">🚨 Fraud Detected</p>
+              <div className="font-mono text-xs text-gray-300 max-h-32 overflow-auto">
+                {(() => {
+                  const fraudLog = JSON.parse(localStorage.getItem('fraud_log') || '[]');
+                  if (fraudLog.length === 0) {
+                    return <p className="text-gray-500">No fraud detected</p>;
+                  }
+                  return (
+                    <div className="space-y-1">
+                      {fraudLog.slice(-5).map((f, i) => (
+                        <div key={i} className="border-l-2 border-red-500 pl-2">
+                          <p className="text-red-400">{f.fraud_type}</p>
+                          <p className="text-gray-400 text-xs">
+                            {f.ticket_id?.substring(0, 12)}... at {f.location}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+          <p className="text-gray-400 text-xs mt-2">
+            💾 Offline validations are queued and synced when network available. Fraud detected during sync.
+          </p>
         </div>
       </div>
     </div>

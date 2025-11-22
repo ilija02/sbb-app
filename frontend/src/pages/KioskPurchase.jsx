@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { generateToken, blindToken, unblindSignature } from '../lib/crypto'
-import { getPublicKey, signBlindedToken } from '../lib/api'
-import { writeToCard, generateVirtualCardId, addCredits, getBalance, deductCredits, getAllCards, clearAllCards } from '../lib/nfcSimulator'
+import { getPublicKey, signBlindedToken, addCreditsToAccount } from '../lib/api'
+import { writeToCard, createVirtualCard, addCredits, getBalance, deductCredits, getAllCards, clearAllCards, authenticateCard } from '../lib/nfcSimulator'
 
 export default function KioskPurchase() {
   const [searchParams] = useSearchParams()
@@ -11,7 +11,8 @@ export default function KioskPurchase() {
   const [selectedTicket, setSelectedTicket] = useState(null)
   const [selectedAmount, setSelectedAmount] = useState(null)
   const [paymentMethod, setPaymentMethod] = useState('credit_card')
-  const [cardId, setCardId] = useState('')
+  const [cardId, setCardId] = useState('') // Public NFC UID
+  const [privateAccountId, setPrivateAccountId] = useState('') // Private HSM-protected ID
   const [ticketData, setTicketData] = useState(null)
   const [processing, setProcessing] = useState(false)
   const [writing, setWriting] = useState(false)
@@ -21,9 +22,17 @@ export default function KioskPurchase() {
   useEffect(() => {
     const urlCardId = searchParams.get('cardId')
     if (urlCardId) {
-      setCardId(urlCardId)
-      // Auto-load balance
-      getBalance(urlCardId).then(bal => setBalance(bal))
+      // Authenticate with card to get private account ID
+      authenticateCard(urlCardId, 'kiosk').then(auth => {
+        if (auth.success) {
+          setCardId(urlCardId) // Public UID
+          setPrivateAccountId(auth.privateAccountId) // Private account ID
+          // Load balance using private ID
+          getBalance(urlCardId).then(bal => setBalance(bal))
+        } else {
+          console.error('Card authentication failed:', auth.error)
+        }
+      })
     }
   }, [searchParams])
 
@@ -135,8 +144,35 @@ export default function KioskPurchase() {
     setStep('processing')
 
     try {
-      // Simulate payment processing
-      await simulatePayment(selectedAmount)
+      // Step 1: Simulate payment processing
+      const paymentProof = await simulatePayment(selectedAmount)
+
+      // Step 2: Create card if none exists, or use existing
+      let targetCardId = cardId
+      let targetPrivateId = privateAccountId
+      
+      if (!targetCardId) {
+        // Auto-create new card for new users (initializes card in storage)
+        const newCard = createVirtualCard()
+        targetCardId = newCard.publicUid
+        targetPrivateId = newCard.privateAccountId
+        setCardId(targetCardId)
+        setPrivateAccountId(targetPrivateId)
+        console.log('Created new card:')
+        console.log('  - Public UID:', targetCardId)
+        console.log('  - Private Account ID:', targetPrivateId)
+      } else {
+        // Step 3: Authenticate existing card to get private account ID
+        const auth = await authenticateCard(targetCardId, 'kiosk')
+        if (!auth.success) {
+          throw new Error('Failed to authenticate card: ' + auth.error)
+        }
+        targetPrivateId = auth.privateAccountId
+        setPrivateAccountId(targetPrivateId)
+      }
+
+      // Step 4: Send to backend using PRIVATE account ID (not public UID!)
+      await addCreditsToAccount(targetPrivateId, selectedAmount, paymentProof)
 
       // Payment complete - now need to write to card
       setStep('write')
@@ -157,16 +193,21 @@ export default function KioskPurchase() {
       // Simulate NFC write
       await new Promise(resolve => setTimeout(resolve, 2000))
 
-      // Use existing card ID or generate new one
+      // Card should already exist from payment step
       let targetCardId = cardId
+      let targetPrivateId = privateAccountId
+      
       if (!targetCardId) {
-        targetCardId = generateVirtualCardId()
-        setCardId(targetCardId)
+        throw new Error('Card ID missing - please restart purchase')
       }
       
-      // Add credits to card
+      // Add credits to card (still uses public ID locally for now)
       const newBalance = await addCredits(targetCardId, selectedAmount)
       setBalance(newBalance)
+      
+      // TODO: In production, send targetPrivateId to backend, NOT targetCardId
+      console.log('PRIVACY: Backend would receive privateAccountId:', targetPrivateId)
+      console.log('PRIVACY: Backend would NEVER see publicUid:', targetCardId)
       
       setStep('success')
     } catch (error) {
@@ -181,9 +222,21 @@ export default function KioskPurchase() {
   const handleCheckBalance = async () => {
     const existingCardId = prompt('Enter your card ID (or leave blank to create new):')
     if (existingCardId) {
-      const cardBalance = await getBalance(existingCardId)
-      setBalance(cardBalance)
-      setCardId(existingCardId)
+      // Authenticate with card
+      const auth = await authenticateCard(existingCardId, 'kiosk')
+      if (auth.success) {
+        setCardId(existingCardId) // Public UID
+        setPrivateAccountId(auth.privateAccountId) // Private account ID
+        
+        const cardBalance = await getBalance(existingCardId)
+        setBalance(cardBalance)
+        
+        console.log('PRIVACY: Kiosk authenticated card')
+        console.log('  - Public UID:', existingCardId)
+        console.log('  - Private Account ID:', auth.privateAccountId)
+      } else {
+        alert('Failed to authenticate card: ' + auth.error)
+      }
     }
   }
 
@@ -192,7 +245,9 @@ export default function KioskPurchase() {
       setTimeout(() => {
         const amountToPay = amount || selectedTicket?.price
         console.log(`Payment processed: ${paymentMethod}, CHF ${amountToPay}`)
-        resolve()
+        // Return payment proof token
+        const paymentProof = `payment_${Date.now()}_${crypto.randomUUID()}`
+        resolve(paymentProof)
       }, 1500)
     })
   }
@@ -255,6 +310,23 @@ export default function KioskPurchase() {
                   <h3 className="text-2xl font-semibold text-gray-800 mb-3">Buy Ticket</h3>
                   <p className="text-sm text-gray-600">Purchase ticket using on-card credits</p>
                 </button>
+              </div>
+
+              {/* Privacy Info Panel */}
+              <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6 max-w-2xl mx-auto">
+                <h3 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                  <span>🔒</span> Privacy-Preserving Architecture
+                </h3>
+                <div className="text-sm text-blue-800 space-y-2">
+                  <p><strong>📶 Public UID:</strong> NFC protocol identifier (always visible to readers)</p>
+                  <p><strong>🔐 Private Account ID:</strong> HSM-protected (requires authentication)</p>
+                  <p><strong>🎫 Ticket IDs:</strong> Blind signed (backend can't link to purchases)</p>
+                  <hr className="border-blue-300 my-3" />
+                  <p className="text-xs text-blue-700">
+                    ✅ Backend sees: Private account ID for refills, ticket IDs for validation<br />
+                    ❌ Backend never sees: Public NFC UID (prevents physical tracking)
+                  </p>
+                </div>
               </div>
 
               <div className="mt-8 text-center">
@@ -566,6 +638,17 @@ export default function KioskPurchase() {
               </div>
 
               <div className="space-y-3">
+                {mode === 'credits' && (
+                  <button
+                    onClick={() => {
+                      setMode('ticket')
+                      setStep('select')
+                    }}
+                    className="block w-full max-w-md mx-auto px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
+                  >
+                    → Buy Ticket Now (CHF {balance} available)
+                  </button>
+                )}
                 {mode === 'ticket' && (
                   <Link
                     to={`/train-validator?cardId=${cardId}`}
@@ -649,10 +732,11 @@ export default function KioskPurchase() {
                   <p className="text-gray-700 font-semibold">{cardCount} card(s) in storage:</p>
                   {Object.entries(cards).map(([id, card]) => (
                     <div key={id} className="border-l-2 border-blue-400 pl-2">
-                      <p className="text-blue-600">Card: {id}</p>
-                      <p className="text-green-600">Balance: CHF {card.credits || 0}</p>
+                      <p className="text-blue-600">📶 Public UID: {id}</p>
+                      <p className="text-orange-600">🔐 Private ID: {card.privateAccountId || 'N/A'}</p>
+                      <p className="text-green-600">💰 Balance: CHF {card.credits || 0}</p>
                       <p className="text-purple-600">
-                        Tickets: {card.applications?.['0x5342']?.files ? 
+                        🎫 Tickets: {card.applications?.['0x5342']?.files ? 
                           Math.floor(Object.keys(card.applications['0x5342'].files).length / 2) : 0}
                       </p>
                     </div>

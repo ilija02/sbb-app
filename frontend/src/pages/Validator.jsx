@@ -60,34 +60,47 @@ export default function Validator() {
 
       if (!data.tickets || data.tickets.length === 0) {
         setStatus('invalid')
-        setScanResult({ reason: 'No tickets on card' })
-        setTimeout(reset, 3000)
+        setScanResult({ 
+          reason: data.credits > 0 
+            ? `Card has CHF ${data.credits} but no tickets. Passenger must purchase ticket at kiosk.`
+            : 'No tickets on card. Passenger must purchase ticket at kiosk.'
+        })
+        setCardData(data)
+        setTimeout(reset, 5000)
         return
       }
 
       setCardData(data)
 
-      // Step 2: Validate first ticket
+      // Step 2: Find most recent valid ticket
       setStatus('validating')
       await delay(150)
 
-      const ticket = data.tickets[0]
       const now = Date.now()
-
-      // Check expiry
-      if (now > ticket.valid_until) {
-        setStatus('invalid')
-        setScanResult({ reason: 'Ticket expired' })
-        setTicketInfo(ticket)
-        setTimeout(reset, 4000)
-        return
+      
+      // Find the first ticket that is currently valid
+      let ticket = null
+      for (const t of data.tickets) {
+        if (now >= t.valid_from && now <= t.valid_until) {
+          ticket = t
+          break
+        }
       }
-
-      // Check validity start
-      if (now < ticket.valid_from) {
+      
+      // If no valid ticket found
+      if (!ticket) {
+        const allExpired = data.tickets.every(t => now > t.valid_until)
+        const allTooEarly = data.tickets.every(t => now < t.valid_from)
+        
         setStatus('invalid')
-        setScanResult({ reason: 'Ticket not yet valid' })
-        setTicketInfo(ticket)
+        if (allExpired) {
+          setScanResult({ reason: 'All tickets expired' })
+        } else if (allTooEarly) {
+          setScanResult({ reason: 'Tickets not yet valid' })
+        } else {
+          setScanResult({ reason: 'No valid tickets on card' })
+        }
+        setTicketInfo(data.tickets[0])
         setTimeout(reset, 4000)
         return
       }
@@ -116,10 +129,11 @@ export default function Validator() {
       }
 
       // Step 5: Save offline log if in offline mode
+      // PRIVACY: Only log ticket_id, NEVER card_uid (prevents travel pattern tracking)
       if (offlineMode) {
         await saveOfflineScan({
           ticket_id: ticket.ticket_id,
-          card_uid: data.cardUid,
+          // card_uid: REMOVED - privacy violation
           timestamp: new Date().toISOString(),
           conductor_id: 'conductor-123',
           result: 'valid'
@@ -320,8 +334,8 @@ export default function Validator() {
               )}
 
               <div className="text-purple-200 text-sm mb-4">
-                <p>Card: {cardData?.cardUid}</p>
-                <p>Tickets on card: {cardData?.tickets.length}</p>
+                {/* PRIVACY: Don't show card UID - only ticket info */}
+                <p>Tickets found: {cardData?.tickets.length}</p>
               </div>
 
               <div className="flex gap-3 justify-center mt-6">
@@ -358,7 +372,8 @@ export default function Validator() {
 
                 {cardData && !ticketInfo && (
                   <div className="text-sm text-red-200 mt-3">
-                    <p>Card: {cardData.cardUid}</p>
+                    {/* PRIVACY: Don't show card UID */}
+                    <p>No valid tickets found</p>
                   </div>
                 )}
               </div>

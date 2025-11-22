@@ -8,6 +8,11 @@
 const API_BASE = "/api/v1";
 const MOCK_MODE = true; // Set to false when backend is ready
 
+// Track network status
+let isOnline = navigator.onLine;
+window.addEventListener('online', () => { isOnline = true; syncPendingValidations(); });
+window.addEventListener('offline', () => { isOnline = false; });
+
 /**
  * Get issuer's public key
  * @returns {object} Public key
@@ -247,4 +252,321 @@ function generateVoucherCode() {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
   return code;
+}
+
+// ===== ONLINE VALIDATION FUNCTIONS =====
+
+/**
+ * Validate ticket online (check for fraud, duplicates)
+ * @param {object} ticket - Ticket data
+ * @param {string} validatorId - Validator device ID
+ * @param {string} location - Validator location
+ * @param {string} validatorType - Type: 'platform' (pre-boarding) or 'conductor' (on-train check)
+ * @returns {Promise<object>} Validation result
+ */
+export async function validateTicketOnline(ticket, validatorId, location, validatorType = 'platform') {
+  if (MOCK_MODE) {
+    await delay(400);
+    
+    // Conductor checks don't affect duplicate detection
+    if (validatorType === 'conductor') {
+      return {
+        valid: true,
+        message: 'Conductor check - ticket inspection only',
+        validator_type: 'conductor'
+      };
+    }
+
+    // Check localStorage for duplicate validations (simulate backend DB)
+    // Only check PLATFORM validations (not conductor checks)
+    const validationHistory = getValidationHistory();
+    
+    console.log('[VALIDATION] Checking ticket:', {
+      ticket_id: ticket.ticket_id.substring(0, 20) + '...',
+      ticket_type: ticket.ticket_type,
+      route: ticket.route,
+      validator_type: validatorType
+    });
+    
+    console.log('[VALIDATION] History for this ticket:', {
+      matching_validations: validationHistory.filter(v => v.ticket_id === ticket.ticket_id),
+      total_history_count: validationHistory.length
+    });
+    
+    const recentValidation = validationHistory.find(
+      v => v.ticket_id === ticket.ticket_id && 
+      v.validator_type === 'platform' && // Only check platform validations
+      Date.now() - v.timestamp < 5 * 60 * 1000 // 5 minutes
+    );
+
+    if (recentValidation && ticket.ticket_type === 'single') {
+      // Single journey already validated recently at platform
+      return {
+        valid: false,
+        reason: 'duplicate_use',
+        message: 'Ticket already validated at platform recently',
+        last_validated: recentValidation.timestamp,
+        location: recentValidation.location,
+        fraud_score: 0.95
+      };
+    }
+
+    // Check for day pass rate limiting (only for platform validators)
+    if (ticket.ticket_type === 'day') {
+      const dayPassValidations = validationHistory.filter(
+        v => v.ticket_id === ticket.ticket_id &&
+        v.validator_type === 'platform' && // Only count platform validations
+        Date.now() - v.timestamp < 24 * 60 * 60 * 1000 // Last 24 hours
+      );
+
+      // Allow day pass, but flag if excessive
+      if (dayPassValidations.length > 20) {
+        return {
+          valid: true,
+          warning: 'excessive_validations',
+          message: 'Day pass validated many times - flagged for review',
+          validation_count: dayPassValidations.length,
+          fraud_score: 0.7
+        };
+      }
+    }
+
+    return {
+      valid: true,
+      message: 'Ticket valid',
+      validation_count: validationHistory.filter(
+        v => v.ticket_id === ticket.ticket_id && v.validator_type === 'platform'
+      ).length + 1,
+      validator_type: validatorType
+    };
+  }
+
+  // Production: Call backend API
+  const response = await fetch(`${API_BASE}/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ticket,
+      validator_id: validatorId,
+      validator_type: validatorType,
+      location,
+      timestamp: Date.now()
+    })
+  });
+
+  if (!response.ok) throw new Error('Validation API failed');
+  return await response.json();
+}
+
+/**
+ * Queue validation for offline processing
+ * @param {object} ticket - Ticket data
+ * @param {string} validatorId - Validator device ID
+ * @param {string} location - Validator location
+ * @param {string} result - Local validation result
+ */
+export function queueOfflineValidation(ticket, validatorId, location, result) {
+  const pendingValidations = JSON.parse(localStorage.getItem('pending_validations') || '[]');
+  
+  pendingValidations.push({
+    ticket_id: ticket.ticket_id,
+    ticket_type: ticket.ticket_type,
+    route: ticket.route,
+    validator_id: validatorId,
+    location,
+    timestamp: Date.now(),
+    local_result: result,
+    synced: false
+  });
+
+  localStorage.setItem('pending_validations', JSON.stringify(pendingValidations));
+  console.log(`[OFFLINE] Queued validation for ticket ${ticket.ticket_id}`);
+}
+
+/**
+ * Sync pending validations when network becomes available
+ */
+export async function syncPendingValidations() {
+  if (!isOnline) return;
+
+  const pendingValidations = JSON.parse(localStorage.getItem('pending_validations') || '[]');
+  const unsyncedValidations = pendingValidations.filter(v => !v.synced);
+
+  if (unsyncedValidations.length === 0) return;
+
+  console.log(`[SYNC] Syncing ${unsyncedValidations.length} pending validations...`);
+
+  if (MOCK_MODE) {
+    await delay(1000);
+    
+    // Simulate fraud detection
+    const fraudulentTickets = [];
+    for (const validation of unsyncedValidations) {
+      // Check if this ticket was validated multiple times offline
+      const duplicates = unsyncedValidations.filter(
+        v => v.ticket_id === validation.ticket_id &&
+        v.ticket_type === 'single'
+      );
+
+      if (duplicates.length > 1) {
+        fraudulentTickets.push({
+          ticket_id: validation.ticket_id,
+          validator_id: validation.validator_id,
+          location: validation.location,
+          timestamp: validation.timestamp,
+          fraud_type: 'offline_duplicate',
+          message: 'Single ticket validated multiple times while offline'
+        });
+      }
+    }
+
+    // Mark all as synced
+    pendingValidations.forEach(v => { v.synced = true; });
+    localStorage.setItem('pending_validations', JSON.stringify(pendingValidations));
+
+    // Log fraud detections
+    if (fraudulentTickets.length > 0) {
+      const fraudLog = JSON.parse(localStorage.getItem('fraud_log') || '[]');
+      fraudLog.push(...fraudulentTickets);
+      localStorage.setItem('fraud_log', JSON.stringify(fraudLog));
+      console.warn(`[FRAUD] Detected ${fraudulentTickets.length} fraudulent validations`);
+    }
+
+    console.log(`[SYNC] Complete. ${fraudulentTickets.length} fraud cases logged.`);
+    return { synced: unsyncedValidations.length, fraud_detected: fraudulentTickets.length };
+  }
+
+  // Production: Batch sync to backend
+  try {
+    const response = await fetch(`${API_BASE}/validations/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ validations: unsyncedValidations })
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      pendingValidations.forEach(v => { v.synced = true; });
+      localStorage.setItem('pending_validations', JSON.stringify(pendingValidations));
+      return result;
+    }
+  } catch (error) {
+    console.error('[SYNC] Failed:', error);
+  }
+}
+
+/**
+ * Get validation history (for mock duplicate checking)
+ */
+function getValidationHistory() {
+  const history = JSON.parse(localStorage.getItem('validation_history') || '[]');
+  return history;
+}
+
+/**
+ * Record validation to history
+ */
+export function recordValidation(ticket, validatorId, location, validatorType = 'platform') {
+  const history = getValidationHistory();
+  history.push({
+    ticket_id: ticket.ticket_id,
+    ticket_type: ticket.ticket_type,
+    validator_id: validatorId,
+    validator_type: validatorType,
+    location,
+    timestamp: Date.now()
+  });
+  
+  // Keep only last 1000 validations
+  if (history.length > 1000) {
+    history.splice(0, history.length - 1000);
+  }
+  
+  localStorage.setItem('validation_history', JSON.stringify(history));
+}
+
+/**
+ * Get fraud log
+ */
+export function getFraudLog() {
+  return JSON.parse(localStorage.getItem('fraud_log') || '[]');
+}
+
+/**
+ * Clear fraud log
+ */
+export function clearFraudLog() {
+  localStorage.setItem('fraud_log', '[]');
+}
+
+/**
+ * Check if network is online
+ */
+export function checkNetworkStatus() {
+  return isOnline;
+}
+
+/**
+ * Add credits to account (backend operation)
+ * @param {string} accountId - PRIVATE account ID (NOT public card UID!)
+ * @param {number} amount - Amount in CHF
+ * @param {string} paymentProof - Payment verification token
+ * @returns {Promise<object>} { success, newBalance }
+ */
+export async function addCreditsToAccount(accountId, amount, paymentProof) {
+  if (MOCK_MODE) {
+    await delay(500);
+    console.log('PRIVACY: Backend receives:');
+    console.log('  - account_id:', accountId, '(HSM-protected, NOT public UID)');
+    console.log('  - amount:', amount);
+    console.log('  - payment_proof:', paymentProof);
+    console.log('PRIVACY: Backend NEVER sees public card UID!');
+    
+    return {
+      success: true,
+      newBalance: amount, // Mock - would query actual balance
+      transaction_id: crypto.randomUUID(),
+    };
+  }
+
+  const response = await fetch(`${API_BASE}/credits/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      account_id: accountId, // ← Private ID, not card_uid!
+      amount: amount,
+      payment_proof: paymentProof,
+    }),
+  });
+
+  if (!response.ok) throw new Error("Failed to add credits");
+  return await response.json();
+}
+
+/**
+ * Get account balance (backend operation)
+ * @param {string} accountId - PRIVATE account ID (NOT public card UID!)
+ * @returns {Promise<number>} Balance in CHF
+ */
+export async function getAccountBalance(accountId) {
+  if (MOCK_MODE) {
+    await delay(200);
+    console.log('PRIVACY: Backend receives account_id:', accountId);
+    console.log('PRIVACY: Backend NEVER sees public card UID!');
+    
+    // Mock - return balance from localStorage for demo
+    return 0;
+  }
+
+  const response = await fetch(`${API_BASE}/credits/balance`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      account_id: accountId, // ← Private ID, not card_uid!
+    }),
+  });
+
+  if (!response.ok) throw new Error("Failed to get balance");
+  const data = await response.json();
+  return data.balance;
 }

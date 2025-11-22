@@ -1,23 +1,119 @@
 # Use Cases: Anonymous Ticketing System
 
-## Physical Interactions: When to Tap
+## 🔒 Privacy Architecture: Dual-UID System
 
-### Card Tapping Timeline
+### Problem: NFC Card UID Exposure
+**NFC cards have a public UID that is ALWAYS exposed to any reader (by protocol design).**
+
+This creates privacy risks:
+- **Passive Tracking**: Malicious readers can track card movements without authorization
+- **Cross-System Linkage**: Same public UID used across payment, transport, building access
+- **Backend Profiling**: If backend sees public UID, can build travel/spending patterns
+
+### Solution: Separate Public & Private Identifiers
+
 ```
-Station → Kiosk → Platform → Train → Conductor
-  [BUY]    [TAP]   [TAP]     [RIDE]   [TAP]
-           Card    Card              Card
-           placed  tapped            if checked
-           for     briefly           
-           1-2s    <1s               
+┌─────────────────────────────────────────────────────────┐
+│                    NFC Card Structure                     │
+├─────────────────────────────────────────────────────────┤
+│                                                           │
+│  📶 Public UID (NFC Protocol Level)                      │
+│     - Always exposed to any reader                        │
+│     - Used for: Anti-collision, card selection           │
+│     - Cannot be hidden (RF protocol requirement)         │
+│     - Example: ABC123                                     │
+│                                                           │
+│  🔐 Private Account ID (HSM Protected)                   │
+│     - Requires: Mutual authentication                     │
+│     - Used for: Backend refills, balance lookups         │
+│     - Never transmitted without auth                      │
+│     - Example: xyz789-secret                              │
+│                                                           │
+│  🎫 Tickets (Blind Signed)                               │
+│     - ticket_id: Unlinkable to purchases                 │
+│     - signature: Verifiable but anonymous                │
+│     - Validators see: ticket_id ONLY                     │
+│                                                           │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Where NFC Readers Are
-1. **Kiosk**: Flat horizontal surface (waist height) - "Place card here"
-2. **Platform Validator**: Vertical post (chest height) - "Tap card here"  
-3. **Conductor Handheld**: Back of tablet device - "Please show card"
+### Authentication Flow
 
----
+```javascript
+// KIOSK: Authorized for private account access
+const auth = await authenticateCard(publicUid, 'kiosk')
+if (auth.success) {
+  // Step 1: Mutual challenge-response
+  // Step 2: Card verifies kiosk is authorized
+  // Step 3: Card releases private account ID
+  
+  // Now can access backend with private ID
+  await addCreditsToAccount(auth.privateAccountId, amount)
+  // Backend logs: xyz789 added 20 CHF
+  // Backend NEVER sees: ABC123 (public UID)
+}
+
+// VALIDATOR: NOT authorized for private account access
+const auth = await authenticateCard(publicUid, 'validator')
+// Returns: { success: false, error: 'Not authorized' }
+// Validators only see ticket_id, never account info
+```
+
+### What Backend Sees
+
+| Operation | Backend Receives | Backend NEVER Sees |
+|-----------|------------------|-------------------|
+| **Credit Refill** | `account_id: xyz789`<br>`amount: 20 CHF` | ❌ Public UID: ABC123<br>❌ Physical card movements |
+| **Ticket Purchase** | `blinded_token: blind(ticket_id)` | ❌ Original ticket_id<br>❌ Route/destination<br>❌ Account ID |
+| **Validation** | `ticket_id: TKT123` | ❌ Public UID: ABC123<br>❌ Private account ID: xyz789 |
+
+### Privacy Benefits
+
+#### ❌ **Without Dual-UID (Privacy Broken)**
+```
+Passive reader at Zurich HB → Sees: ABC123 at 08:00
+Backend refill log → Card ABC123 added 20 CHF at 08:15
+Store payment terminal → Card ABC123 bought coffee at 08:30
+Train validator → Card ABC123 validated ticket at 09:00
+Passive reader at Bern → Sees: ABC123 at 10:00
+
+TRACKING POSSIBLE:
+- Card ABC123 travels Zurich → Bern daily
+- Refills every Monday morning
+- Commuter pattern established
+```
+
+#### ✅ **With Dual-UID (Privacy Preserved)**
+```
+Passive reader at Zurich HB → Sees: ABC123 at 08:00
+Backend refill log → Account xyz789 added 20 CHF (can't link to ABC123)
+Store payment terminal → Card ABC123 (different system, no backend link)
+Train validator → Validates ticket TKT123 (blind signed, can't link to xyz789 or ABC123)
+Passive reader at Bern → Sees: ABC123 at 10:00
+
+TRACKING BLOCKED:
+- Passive readers see ABC123, but backend doesn't
+- Backend sees xyz789 refills, but not which physical card
+- Backend sees TKT123 validations, but not which card/account
+- No system can link: Physical card → Account → Tickets
+```
+
+### Implementation Status
+
+**✅ Completed:**
+- Dual-UID card structure (`publicUid` + `privateAccountId`)
+- Challenge-response authentication (`authenticateCard()`)
+- Kiosk authorization (can access private ID)
+- Validator authorization (denied private ID access)
+- Backend API uses `account_id`, never `card_uid`
+- Privacy logging in console (shows what backend receives)
+
+**🔒 Privacy Guarantees:**
+1. Backend NEVER sees public NFC UID
+2. Validators NEVER see private account ID
+3. Passive readers CANNOT link to backend data
+4. Refill transactions unlinkable from physical card movements
+
 
 ## Use Case 1: Mobile App Purchase (Smartphone NFC)
 
