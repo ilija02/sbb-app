@@ -67,7 +67,7 @@ This repository contains a Proof-of-Concept (POC) for an anonymous ticketing sys
 
 ---
 
-## Developer B — Frontend & Validator PWA (Your Tasks)
+## Developer B — Frontend & Validator PWA
 
 ### Core Responsibilities
 
