@@ -10,6 +10,7 @@
     "lint": "eslint src --ext js,jsx"
   },
   "dependencies": {
+    "@zxing/library": "^0.21.3",
     "idb": "^7.1.1",
     "qrcode.react": "^3.1.0",
     "react": "^18.2.0",

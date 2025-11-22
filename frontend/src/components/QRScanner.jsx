@@ -1,15 +1,17 @@
 /**
  * QRScanner Component
  * 
- * MOCK IMPLEMENTATION - Simulates QR scanning for POC
- * In production, implement webcam access with @zxing/library or jsQR
+ * Implements QR code scanning using @zxing/library with webcam access
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { BrowserQRCodeReader } from '@zxing/library'
 
 export default function QRScanner({ onScan, onError, isScanning }) {
   const videoRef = useRef(null)
   const [cameraActive, setCameraActive] = useState(false)
+  const codeReaderRef = useRef(null)
+  const scanningRef = useRef(false)
 
   useEffect(() => {
     if (!isScanning) {
@@ -24,64 +26,97 @@ export default function QRScanner({ onScan, onError, isScanning }) {
 
   const startCamera = async () => {
     try {
-      // TODO: In production, implement actual webcam access
-      // const stream = await navigator.mediaDevices.getUserMedia({ 
-      //   video: { facingMode: 'environment' } 
-      // })
-      // if (videoRef.current) {
-      //   videoRef.current.srcObject = stream
-      // }
+      // Create QR code reader
+      const codeReader = new BrowserQRCodeReader()
+      codeReaderRef.current = codeReader
+      
+      // Get video devices
+      const videoInputDevices = await codeReader.listVideoInputDevices()
+      
+      if (videoInputDevices.length === 0) {
+        throw new Error('No camera found')
+      }
+      
+      // Use back camera if available, otherwise use first camera
+      const selectedDevice = videoInputDevices.find(device => 
+        device.label.toLowerCase().includes('back') || 
+        device.label.toLowerCase().includes('rear') ||
+        device.label.toLowerCase().includes('environment')
+      ) || videoInputDevices[0]
+      
+      console.log('Using camera:', selectedDevice.label)
       
       setCameraActive(true)
+      scanningRef.current = true
       
-      // TODO: Implement QR detection with @zxing/library
-      // Example:
-      // const codeReader = new BrowserQRCodeReader()
-      // codeReader.decodeFromVideoElement(videoRef.current, (result, err) => {
-      //   if (result) {
-      //     onScan(result.getText())
-      //   }
-      // })
+      // Start decoding from video device
+      await codeReader.decodeFromVideoDevice(
+        selectedDevice.deviceId,
+        videoRef.current,
+        (result, error) => {
+          if (result && scanningRef.current) {
+            console.log('QR Code detected:', result.getText())
+            onScan(result.getText())
+            scanningRef.current = false // Stop scanning after first successful scan
+          }
+          
+          if (error && error.name !== 'NotFoundException') {
+            // NotFoundException is expected when no QR code is in view
+            console.error('Scanning error:', error)
+          }
+        }
+      )
       
     } catch (error) {
       console.error('Camera access failed:', error)
+      setCameraActive(false)
       if (onError) {
-        onError('Camera access denied. Please allow camera permissions.')
+        onError(`Camera error: ${error.message}. Please allow camera permissions.`)
       }
     }
   }
 
   const stopCamera = () => {
+    scanningRef.current = false
+    
+    // Stop the code reader
+    if (codeReaderRef.current) {
+      codeReaderRef.current.reset()
+      codeReaderRef.current = null
+    }
+    
+    // Stop video stream
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject
       const tracks = stream.getTracks()
       tracks.forEach(track => track.stop())
       videoRef.current.srcObject = null
     }
+    
     setCameraActive(false)
   }
 
   return (
     <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
-      {/* Video element (hidden in mock mode) */}
+      {/* Video element */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
+        muted
         className="w-full h-full object-cover"
-        style={{ display: cameraActive ? 'block' : 'none' }}
       />
 
-      {/* Mock camera view */}
-      {!cameraActive && (
+      {/* Loading state */}
+      {!cameraActive && isScanning && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
           <div className="text-white text-center">
-            <div className="text-6xl mb-4">📷</div>
+            <div className="text-6xl mb-4 animate-pulse">📷</div>
             <p className="text-sm text-gray-400">
-              Camera scanning not yet implemented
+              Requesting camera access...
             </p>
             <p className="text-xs text-gray-500 mt-2">
-              Add @zxing/library for QR scanning
+              Please allow camera permissions
             </p>
           </div>
         </div>

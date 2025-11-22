@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { QRCodeSVG } from 'qrcode.react'
+import QRCode from 'qrcode.react'
 import { generateRotatingProof, generateQRPayload } from '../lib/crypto'
 
 export default function RotatingQRCode({ token, masterSecret, epochDuration = 30000 }) {
@@ -80,11 +80,12 @@ export default function RotatingQRCode({ token, masterSecret, epochDuration = 30
     <div className="flex flex-col items-center">
       {/* QR Code */}
       <div className="bg-white p-6 rounded-xl shadow-lg">
-        <QRCodeSVG
+        <QRCode
           value={qrData}
           size={256}
           level="M"
           includeMargin={true}
+          renderAs="svg"
         />
       </div>
 

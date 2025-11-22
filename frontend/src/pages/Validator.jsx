@@ -4,6 +4,7 @@ import QRScanner from '../components/QRScanner'
 import { parseQRPayload, verifySignature, verifyRotatingProof, isTokenExpired } from '../lib/crypto'
 import { getPublicKey, redeemToken } from '../lib/api'
 import { saveOfflineScan, getUnsyncedScans, markScanAsSynced } from '../lib/storage'
+import { ChallengeBroadcaster, isMockMode } from '../lib/hidStyle'
 
 export default function Validator() {
   const [scanResult, setScanResult] = useState(null)
@@ -11,15 +12,74 @@ export default function Validator() {
   const [offlineMode, setOfflineMode] = useState(false)
   const [unsyncedCount, setUnsyncedCount] = useState(0)
   const videoRef = useRef(null)
+  
+  // HID-style challenge broadcaster
+  const broadcasterRef = useRef(null)
+  const [broadcastingHID, setBroadcastingHID] = useState(false)
+  const [currentChallenge, setCurrentChallenge] = useState(null)
 
   // Load unsynced count on mount and when online status changes
   useEffect(() => {
     loadUnsyncedCount()
   }, [offlineMode])
 
+  // Cleanup broadcaster on unmount
+  useEffect(() => {
+    return () => {
+      if (broadcasterRef.current) {
+        broadcasterRef.current.stopBroadcasting()
+      }
+    }
+  }, [])
+
   const loadUnsyncedCount = async () => {
     const unsynced = await getUnsyncedScans()
     setUnsyncedCount(unsynced.length)
+  }
+
+  const toggleHIDBroadcast = async () => {
+    if (!broadcastingHID) {
+      // Start broadcasting
+      const broadcaster = new ChallengeBroadcaster('validator-' + Math.random().toString(36).substring(7))
+      broadcasterRef.current = broadcaster
+      
+      try {
+        await broadcaster.startBroadcasting()
+        setBroadcastingHID(true)
+        
+        // Update current challenge display every second
+        const interval = setInterval(() => {
+          const challenge = broadcaster.getCurrentChallenge()
+          setCurrentChallenge(challenge)
+          
+          // Make challenge available globally for mock mode
+          if (isMockMode()) {
+            window.__mockValidatorChallenge = challenge
+          }
+        }, 1000)
+        
+        // Store interval for cleanup
+        broadcasterRef.current.updateInterval = interval
+        
+      } catch (error) {
+        alert('Failed to start HID broadcast: ' + error.message)
+        broadcasterRef.current = null
+      }
+    } else {
+      // Stop broadcasting
+      if (broadcasterRef.current) {
+        broadcasterRef.current.stopBroadcasting()
+        if (broadcasterRef.current.updateInterval) {
+          clearInterval(broadcasterRef.current.updateInterval)
+        }
+        broadcasterRef.current = null
+      }
+      setBroadcastingHID(false)
+      setCurrentChallenge(null)
+      if (isMockMode()) {
+        window.__mockValidatorChallenge = null
+      }
+    }
   }
 
   const startScanning = () => {
@@ -31,8 +91,50 @@ export default function Validator() {
     setStatus('processing')
     
     try {
-      // Parse QR payload
-      const tokenData = parseQRPayload(qrData)
+      // Try to parse as HID-style response first
+      let tokenData
+      let isHIDStyle = false
+      
+      try {
+        tokenData = JSON.parse(qrData)
+        // Check if it's an HID-style response (has challenge field)
+        if (tokenData.challenge && tokenData.response && tokenData.credentialId) {
+          isHIDStyle = true
+        }
+      } catch {
+        // Fall back to regular QR payload parsing
+        tokenData = parseQRPayload(qrData)
+      }
+      
+      // Handle HID-style validation
+      if (isHIDStyle && broadcasterRef.current) {
+        const verification = await broadcasterRef.current.verifyResponse(tokenData, {
+          token: tokenData.credentialId // Mock credential info
+        })
+        
+        if (verification.valid) {
+          setStatus('valid')
+          setScanResult({
+            message: '✅ HID-style validation successful',
+            credentialId: verification.credentialId,
+            validatedAt: verification.validatedAt,
+            mode: 'HID Challenge-Response',
+            details: tokenData
+          })
+        } else {
+          setStatus('invalid')
+          setScanResult({
+            reason: verification.reason,
+            mode: 'HID Challenge-Response',
+            details: tokenData
+          })
+        }
+        
+        setTimeout(resetScan, 4000)
+        return
+      }
+      
+      // Regular QR code validation (existing logic)
       
       // Check expiry
       if (isTokenExpired(tokenData.expiry)) {
@@ -345,6 +447,43 @@ export default function Validator() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* HID Challenge Broadcaster */}
+        <div className="mb-6 bg-purple-900 border border-purple-700 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-semibold text-purple-200">🔐 HID-Style Challenge Broadcast</h3>
+              <p className="text-xs text-purple-300 mt-1">
+                {isMockMode() ? '🧪 Mock Mode (Demo)' : '📡 Live BLE Broadcast'}
+              </p>
+            </div>
+            <button
+              onClick={toggleHIDBroadcast}
+              className={`px-6 py-3 rounded-lg font-semibold transition ${
+                broadcastingHID
+                  ? 'bg-green-600 hover:bg-green-700 text-white'
+                  : 'bg-purple-600 hover:bg-purple-700 text-white'
+              }`}
+            >
+              {broadcastingHID ? '✓ Broadcasting' : 'Start Broadcast'}
+            </button>
+          </div>
+          
+          {broadcastingHID && currentChallenge && (
+            <div className="mt-3 bg-purple-800 rounded p-3 font-mono text-xs">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-purple-300">Current Challenge:</span>
+                <span className="text-purple-400">Updates every 5s</span>
+              </div>
+              <div className="text-purple-100 break-all">
+                {currentChallenge.nonce}
+              </div>
+              <div className="text-purple-400 text-xs mt-2">
+                Range: ~10m | Valid: 15s | Validator: {currentChallenge.validatorId}
+              </div>
             </div>
           )}
         </div>

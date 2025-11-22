@@ -1,15 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import RotatingQRCode from '../components/RotatingQRCode'
 import { generateToken, blindToken, unblindSignature } from '../lib/crypto'
 import { getPublicKey, signBlindedToken } from '../lib/api'
 import { saveToken, getAllTokens, deleteToken, saveMasterSecret } from '../lib/storage'
+import { provisionTicket, validateTicket, TwistAndGoDetector, isMockMode } from '../lib/hidStyle'
 
 export default function Wallet() {
   const [tokens, setTokens] = useState([])
   const [generating, setGenerating] = useState(false)
   const [selectedToken, setSelectedToken] = useState(null)
   const [showQR, setShowQR] = useState(false)
+  const [validationMode, setValidationMode] = useState('qr') // 'qr' or 'hid'
+  const [hidValidation, setHidValidation] = useState(null)
+  const [twistAndGoEnabled, setTwistAndGoEnabled] = useState(false)
+  const twistDetector = useRef(null)
 
   // Load tokens from IndexedDB on mount
   useEffect(() => {
@@ -59,7 +64,13 @@ export default function Wallet() {
         await saveMasterSecret(tokenRecord.id, masterSecret)
       }
       
-      // 7. Store in IndexedDB
+      // 7. Provision HID-style secure credential
+      const hidCredential = await provisionTicket(tokenRecord)
+      tokenRecord.hidCredential = hidCredential.credential
+      tokenRecord.deviceKey = hidCredential.deviceKey
+      tokenRecord.credentialId = hidCredential.credentialId
+      
+      // 8. Store in IndexedDB
       await saveToken(tokenRecord)
       
       // Update UI
@@ -73,7 +84,61 @@ export default function Wallet() {
     }
   }
 
+  const handleHIDValidation = async (token) => {
+    setGenerating(true)
+    setValidationMode('hid')
+    
+    try {
+      // Validate using HID-style challenge-response
+      const result = await validateTicket(token.hidCredential, token.deviceKey)
+      
+      setHidValidation(result)
+      setSelectedToken(token)
+      setShowQR(true)
+      
+    } catch (error) {
+      console.error('HID validation failed:', error)
+      alert(error.message)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const toggleTwistAndGo = () => {
+    if (!twistAndGoEnabled) {
+      // Enable twist-and-go
+      const firstValidTicket = tokens.find(t => new Date(t.expiry) > new Date())
+      
+      if (!firstValidTicket) {
+        alert('No valid tickets available')
+        return
+      }
+      
+      const detector = new TwistAndGoDetector(() => {
+        console.log('🔄 Twist detected! Auto-validating ticket...')
+        handleHIDValidation(firstValidTicket)
+      })
+      
+      const started = detector.start()
+      if (started) {
+        twistDetector.current = detector
+        setTwistAndGoEnabled(true)
+        alert('Twist-and-Go enabled! Twist your phone near a validator to auto-validate.')
+      } else {
+        alert('Motion sensors not available on this device')
+      }
+    } else {
+      // Disable twist-and-go
+      if (twistDetector.current) {
+        twistDetector.current.stop()
+        twistDetector.current = null
+      }
+      setTwistAndGoEnabled(false)
+    }
+  }
+
   const handleShowQR = (token) => {
+    console.log('Showing QR for token:', token)
     setSelectedToken(token)
     setShowQR(true)
   }
@@ -117,11 +182,57 @@ export default function Wallet() {
                 </button>
               </div>
               
-              <RotatingQRCode
-                token={selectedToken}
-                masterSecret={selectedToken.masterSecret}
-                epochDuration={30000}
-              />
+              {validationMode === 'qr' ? (
+                <RotatingQRCode
+                  token={selectedToken}
+                  masterSecret={selectedToken.masterSecret}
+                  epochDuration={30000}
+                />
+              ) : (
+                // HID-style validation result
+                <div className="flex flex-col items-center">
+                  {hidValidation && (
+                    <>
+                      <div className="bg-white p-6 rounded-xl shadow-lg">
+                        <div className="text-center mb-4">
+                          <div className="text-6xl mb-4">🔐</div>
+                          <h3 className="text-lg font-bold text-gray-800">HID-Style Validation</h3>
+                          <p className="text-sm text-gray-600 mt-2">Challenge-Response Authentication</p>
+                        </div>
+                        
+                        <div className="space-y-3 text-left text-xs font-mono bg-gray-50 p-4 rounded">
+                          <div>
+                            <span className="text-gray-600">Validator:</span>
+                            <div className="text-gray-900">{hidValidation.validator.name}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Challenge:</span>
+                            <div className="text-gray-900">{hidValidation.challenge.nonce.substring(0, 32)}...</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Response:</span>
+                            <div className="text-gray-900 truncate">{hidValidation.response.response.substring(0, 32)}...</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Credential ID:</span>
+                            <div className="text-gray-900">{hidValidation.response.credentialId}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Timestamp:</span>
+                            <div className="text-gray-900">{new Date(hidValidation.response.timestamp).toLocaleTimeString()}</div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-4 px-4 py-2 bg-green-50 border border-green-200 rounded-lg max-w-xs">
+                        <p className="text-xs text-green-800 text-center">
+                          ✅ Ready for validation - show to conductor
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
               
               <div className="mt-6 text-center space-y-2">
                 <p className="text-sm text-gray-600">
@@ -213,20 +324,35 @@ export default function Wallet() {
                     </p>
                   </div>
 
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleShowQR(token)}
-                      disabled={isExpired}
-                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
-                    >
-                      Show QR Code
-                    </button>
-                    <button
-                      onClick={() => handleDeleteToken(token.id)}
-                      className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
-                    >
-                      🗑️
-                    </button>
+                  <div className="space-y-2">
+                    {token.hidCredential && (
+                      <button
+                        onClick={() => handleHIDValidation(token)}
+                        disabled={isExpired || generating}
+                        className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-semibold"
+                      >
+                        🔐 HID-Style Validation
+                      </button>
+                    )}
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setValidationMode('qr')
+                          handleShowQR(token)
+                        }}
+                        disabled={isExpired}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                      >
+                        Show QR Code
+                      </button>
+                      <button
+                        onClick={() => handleDeleteToken(token.id)}
+                        className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
                 </div>
               )
@@ -234,15 +360,54 @@ export default function Wallet() {
           )}
         </div>
 
+        {/* HID-Style Features */}
+        <div className="mt-8 bg-purple-50 border border-purple-200 rounded-lg p-4 text-sm">
+          <h3 className="font-semibold text-purple-800 mb-3">🔐 HID Mobile Access-Style Features</h3>
+          
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-purple-900">Twist-and-Go Auto-Validation</p>
+                <p className="text-xs text-purple-700">Twist phone to auto-validate near validator</p>
+              </div>
+              <button
+                onClick={toggleTwistAndGo}
+                className={`px-4 py-2 rounded-lg font-semibold transition ${
+                  twistAndGoEnabled
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-white border-2 border-purple-300 text-purple-700 hover:bg-purple-50'
+                }`}
+              >
+                {twistAndGoEnabled ? '✓ Active' : 'Enable'}
+              </button>
+            </div>
+            
+            <div className="pt-3 border-t border-purple-200">
+              <p className="text-xs text-purple-700 mb-2">
+                <strong>Mode:</strong> {isMockMode() ? '🧪 Mock (Demo)' : '📡 Live BLE'}
+              </p>
+              <ul className="text-xs text-purple-700 space-y-1">
+                <li>✅ BLE Challenge-Response Protocol</li>
+                <li>✅ Device-Bound Encrypted Credentials</li>
+                <li>✅ Anti-Replay Protection</li>
+                <li>✅ Time-Synchronized Authentication</li>
+                <li>✅ Twist-and-Go Motion Detection</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
         {/* Status Info */}
-        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
+        <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
           <h3 className="font-semibold text-blue-800 mb-2">✅ Implementation Status:</h3>
           <ul className="text-blue-700 space-y-1">
             <li>✅ Blind signature flow (MOCK - crypto utilities ready)</li>
             <li>✅ IndexedDB storage with persistence</li>
             <li>✅ QR code generation with qrcode.react</li>
             <li>✅ Rotating cryptographic proofs for day tickets (30s epochs)</li>
-            <li>✅ Countdown timer for QR refresh</li>
+            <li>✅ HID-style challenge-response validation</li>
+            <li>✅ Device-bound credentials (AES-GCM encryption)</li>
+            <li>✅ Twist-and-Go motion detection</li>
             <li>⏳ Service worker for offline support (TODO)</li>
             <li>⏳ Backend API integration (using mock API for now)</li>
           </ul>

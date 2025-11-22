@@ -2,7 +2,7 @@
 
 /**
  * Demo Script - Test All Features
- * 
+ *
  * This script demonstrates the complete flow of the anonymous ticketing system
  * using the browser console.
  */
@@ -25,9 +25,7 @@ console.log(`
 1. WALLET TESTING (http://localhost:5173/)
    ─────────────────────────────────────────
    a) Click "Single Journey" - generates 2-hour ticket
-   b) Click "Day Ticket" - generates 24-hour ticket with RCP
-   c) Click "Show QR Code" on any ticket
-   d) For day tickets:
+   b) Click "Day Ticket" - generates 24-hour ticket with Rx
       - Watch QR regenerate every 30 seconds
       - Note the countdown timer
       - Try screenshot (won't work after 30s!)
@@ -134,4 +132,4 @@ console.log(`
 ───────────────────────────────────────────────────────────────
 Happy Testing! 🎉
 ───────────────────────────────────────────────────────────────
-`)
+`);
