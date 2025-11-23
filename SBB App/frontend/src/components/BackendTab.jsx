@@ -21,7 +21,7 @@ export default function BackendTab({ validatorTime }) {
   const [tokenPurchases, setTokenPurchases] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [activeSection, setActiveSection] = useState('keys') // keys, balances, invalidated, purchases
+  const [activeSection, setActiveSection] = useState('balances') // balances, invalidated, purchases
 
   useEffect(() => {
     console.log('[BackendTab] useEffect triggered')
@@ -96,13 +96,6 @@ export default function BackendTab({ validatorTime }) {
     setError(null)
     try {
       console.log('[BackendTab] Updating data incrementally...')
-      const now = validatorTime || Date.now()
-      
-      // Only ensure active keys if not restarting (to avoid creating extra keys during restart)
-      const { ensureActiveKeys, setRestarting } = await import('../lib/storage')
-      // Check if we're restarting by trying to get the flag (we'll use a workaround)
-      // For now, just ensure keys - the isRestarting flag in storage.js will prevent creation
-      await ensureActiveKeys(now)
       
       const [keysData, invalidatedData, balancesData, purchasesData] = await Promise.allSettled([
         getAllCryptographicKeys(),
@@ -220,24 +213,8 @@ export default function BackendTab({ validatorTime }) {
     return { label: 'Active', color: 'green' }
   }
 
-  // Auto-check for key expiration and create new keys when needed
-  useEffect(() => {
-    const checkAndRotateKeys = async () => {
-      try {
-        const now = validatorTime || Date.now()
-        // This will automatically ensure at least 5 active keys exist
-        const { ensureActiveKeys } = await import('../lib/storage')
-        await ensureActiveKeys(now)
-        // Update data to show any new keys
-        await updateDataIncrementally()
-      } catch (error) {
-        console.error('[BackendTab] Error checking keys:', error)
-      }
-    }
-    
-    // Check when validatorTime changes
-    checkAndRotateKeys()
-  }, [validatorTime])
+  // Note: Key rotation has been removed as we use signed expiry dates for security
+  // Keys are created at startup and remain valid for their lifetime
 
   if (loading) {
     return (
@@ -272,7 +249,6 @@ export default function BackendTab({ validatorTime }) {
   const safeTokenPurchases = Array.isArray(tokenPurchases) ? tokenPurchases : []
 
   const sections = [
-    { id: 'keys', name: '🔑 Keys', count: safeKeys.length },
     { id: 'balances', name: '💰 Balances', count: safeUserBalances.length },
     { id: 'invalidated', name: '🚫 Invalidated', count: safeInvalidatedTickets.length },
     { id: 'purchases', name: '🛒 Purchases', count: safeTokenPurchases.length },
@@ -284,7 +260,7 @@ export default function BackendTab({ validatorTime }) {
       {/* Header */}
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h1 className="text-2xl font-bold text-gray-800 mb-2">🖥️ Backend Dashboard</h1>
-        <p className="text-sm text-gray-600">Cryptographic keys, user balances, invalidated tickets, and purchase history</p>
+        <p className="text-sm text-gray-600">User balances, invalidated tickets, and purchase history</p>
       </div>
 
       {/* Section Tabs */}
@@ -307,62 +283,6 @@ export default function BackendTab({ validatorTime }) {
 
         {/* Section Content */}
         <div className="p-4">
-          {/* Cryptographic Keys */}
-          {activeSection === 'keys' && (
-            <div className="space-y-3">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-                <p className="text-sm text-blue-800">
-                  ℹ️ System maintains at least 5 active keys at all times. When keys expire, new ones are automatically created with 10 hours validity. Keys are sorted by creation time (newest first).
-                </p>
-              </div>
-              {safeKeys.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No cryptographic keys found</p>
-              ) : (
-                safeKeys.map(key => {
-                  const status = getKeyStatus(key)
-                  return (
-                    <div
-                      key={key.keyId}
-                      className={`border rounded-lg p-3 ${
-                        status.color === 'green' ? 'border-green-300 bg-green-50' :
-                        status.color === 'red' ? 'border-red-300 bg-red-50' :
-                        'border-gray-300 bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-mono text-xs font-semibold">{key.keyId}</span>
-                            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                              status.color === 'green' ? 'bg-green-200 text-green-800' :
-                              status.color === 'red' ? 'bg-red-200 text-red-800' :
-                              'bg-gray-200 text-gray-800'
-                            }`}>
-                              {status.label}
-                            </span>
-                          </div>
-                          <div className="text-xs text-gray-600 space-y-0.5">
-                            <p>Created: {key.createdAt ? formatDate(key.createdAt) : 'N/A'}</p>
-                            <p>Expires: {key.expiresAt ? formatDate(key.expiresAt) : 'N/A'} {key.expiresAt && key.expiresAt > (validatorTime || Date.now()) && `(${formatTimeRemaining(key.expiresAt)} remaining)`}</p>
-                            <p className="font-mono text-xs break-all">
-                              Public Key: {
-                                key.publicKey 
-                                  ? (typeof key.publicKey === 'string' 
-                                      ? key.publicKey.substring(0, 40) + '...'
-                                      : (key.publicKey.n || JSON.stringify(key.publicKey).substring(0, 40) + '...'))
-                                  : 'N/A'
-                              }
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          )}
-
           {/* User Balances */}
           {activeSection === 'balances' && (
             <div className="space-y-2">

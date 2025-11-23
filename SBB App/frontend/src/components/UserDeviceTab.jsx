@@ -677,6 +677,17 @@ export default function UserDeviceTab({ validatorTime }) {
             <span>✅</span> Valid Tickets ({validTickets.length})
           </h2>
           
+          {/* Encryption Notice */}
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 flex items-start gap-3">
+            <div className="text-2xl">🔒</div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-green-800 mb-1">Encrypted Storage</p>
+              <p className="text-xs text-green-700">
+                Tickets are stored encrypted in your device's Secure Element using hardware-backed encryption keys. Cannot be cloned or extracted.
+              </p>
+            </div>
+          </div>
+          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {validTickets.map((ticket) => (
               <div

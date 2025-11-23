@@ -341,7 +341,7 @@ export default function ValidatorTab({ validatorTime = Date.now() }) {
         
         if (newestKey) {
           // Create a new ticket with the newest key and align expiration
-          const newTicketId = `ticket_${Date.now()}_${generateToken().substring(0, 16)}`
+          const newTicketId = generateToken() // Generate unique ticket ID (no prefix)
           const token = generateToken()
           const blindedToken = blindToken(token, newestKey.publicKey)
           
