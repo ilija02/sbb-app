@@ -13,7 +13,7 @@ Paper tickets are:
 
 **Fully digital tickets on two platforms:**
 
-1. **Smartphone App** (iOS/Android) - Free, instant setup
+1. **Mobile App** - Free, instant setup
 2. **Refillable DESFire Card** (€5 deposit) - No smartphone needed
 
 ## Key Benefits
@@ -39,22 +39,19 @@ Paper tickets are:
 
 ### Buying Tickets
 
-**Option 1: Smartphone App**
-1. User downloads free app (iOS/Android)
+**Option 1: Mobile App (Virtual Card)**
+1. User downloads free mobile app
 2. Creates account and adds payment method
 3. Buys ticket online → Stored in phone's Secure Element
 4. Tap phone to validate (NFC) or show QR code to conductor
 
-**Option 2: Physical DESFire Card**
-1. User buys €5 refillable card at kiosk or online
-2. Loads credits at kiosk or via Android app (NFC phone-to-card transfer)
-3. Generates ticket at kiosk or via app
-4. Tap card to validate
+**Option 2: Physical DESFire Card (with mobile app)**
+1. User buys €5 refillable card or receives pre-loaded card
+2. Downloads mobile app (free)
+3. In app: Load credits to phone → Buy ticket → Transfer to physical card (NFC)
+4. Tap card to conductor's phone to validate
 
-**Option 3: Hybrid (Low-Cost Initial Deployment)**
-1. Buy ticket on Android app
-2. Tap phone to card to transfer credits/ticket (peer-to-peer NFC)
-3. Use card for validation
+**Note:** Physical cards can also be loaded at kiosks without a mobile app.
 
 ### Validating Tickets
 
@@ -124,20 +121,21 @@ Conductor CANNOT see:
 
 ## Deployment Phases
 
-### Phase 1: Android-Only (Low Cost)
-- Android app with NFC card loading capability
-- Users buy tickets in app, transfer to DESFire cards via phone NFC
-- Conductors validate with Android smartphones
-- **No kiosks needed** - purely app-based
+### Phase 1: Mobile App + Cards (Low Cost)
+- Mobile app with NFC ticket loading capability
+- Users buy tickets in app (virtual card) or load onto physical DESFire cards via phone NFC
+- Conductors validate with smartphones
+- **No kiosks needed initially** - purely app-based
+- Card holders without smartphones can buy pre-loaded cards online (mailed)
 
-**Cost**: ~€50K (app development only)
+**Cost**: ~€50K (app development + card inventory)
 
-### Phase 2: iOS + Kiosks
-- iOS app with Wallet integration
+### Phase 2: Kiosks for Accessibility
 - Deploy kiosks at major stations for card purchases
+- Self-service ticket loading for non-smartphone users
 - Full omnichannel experience
 
-**Cost**: ~€200K (iOS app + 50 kiosks @ €3K each)
+**Cost**: ~€150K (50 kiosks @ €3K each)
 
 ### Phase 3: Platform Validators (Optional)
 - Install validators at platform entrances
@@ -154,7 +152,7 @@ Conductor CANNOT see:
 - Kiosks: Standard PC + NFC reader (€3K each)
 
 **Software:**
-- Mobile apps: React Native (iOS + Android)
+- Mobile app: React Native (cross-platform)
 - Backend: Node.js + PostgreSQL + Redis
 - HSM: AWS CloudHSM (pay-as-you-go)
 

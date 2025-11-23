@@ -1,10 +1,12 @@
 /**
- * User Device Tab - View tokens and tickets
+ * User Device Tab - Manage virtual and physical cards
  */
 
 import { useState, useEffect } from 'react'
 import { 
   getUserBalance,
+  setUserBalance,
+  addToUserBalance,
   getUserTicketsForCard,
   getAllUserTickets,
   subscribeToChanges,
@@ -18,18 +20,19 @@ import { DEMO_CARD_IDS, initializeSeedData } from '../lib/seedData'
 import { generateToken, blindToken, unblindSignature } from '../lib/crypto'
 
 export default function UserDeviceTab({ validatorTime }) {
+  const [cardType, setCardType] = useState('virtual') // 'virtual' or 'physical'
   const [selectedCardId, setSelectedCardId] = useState(DEMO_CARD_IDS.USER_1)
-  const [deviceType, setDeviceType] = useState('phone') // 'phone' or 'card'
   const [tickets, setTickets] = useState([])
   const [usageTokens, setUsageTokens] = useState([])
   const [balance, setBalance] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [showPurchaseForm, setShowPurchaseForm] = useState(false)
+  const [view, setView] = useState('home') // 'home', 'load-credits', 'buy-ticket', 'transfer-ticket'
   const [purchasing, setPurchasing] = useState(false)
   const [purchaseMessage, setPurchaseMessage] = useState(null)
   const [ticketType, setTicketType] = useState('single')
   const [route, setRoute] = useState('ZH-BE')
   const [ticketClass, setTicketClass] = useState(2)
+  const [creditAmount, setCreditAmount] = useState(50)
 
   // Load data only when card changes or stores change (not on validatorTime)
   useEffect(() => {
@@ -212,11 +215,11 @@ export default function UserDeviceTab({ validatorTime }) {
       // Reload data
       await loadData()
       
-      // Close form after a moment
+      // Return to home view after a moment
       setTimeout(() => {
-        setShowPurchaseForm(false)
+        setView('home')
         setPurchaseMessage(null)
-      }, 3000)
+      }, 2000)
     } catch (error) {
       console.error('Error purchasing ticket:', error)
       setPurchaseMessage({ type: 'error', text: error.message || 'Failed to purchase ticket' })
@@ -237,44 +240,132 @@ export default function UserDeviceTab({ validatorTime }) {
   const validTickets = tickets.filter(isTicketValid)
   const expiredTickets = tickets.filter(isTicketExpired)
 
+  const handleLoadCredits = async () => {
+    setPurchasing(true)
+    setPurchaseMessage(null)
+
+    try {
+      // Simulate payment processing
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Add credits to phone (virtual card balance) - save to storage
+      const newBalance = await addToUserBalance(selectedCardId, creditAmount)
+      
+      // Record purchase
+      await saveTokenPurchase({
+        accountId: `account_${selectedCardId}`,
+        amount: creditAmount,
+        paymentMethod: 'mobile_app',
+        timestamp: validatorTime || Date.now(),
+      })
+      
+      setPurchaseMessage({ 
+        type: 'success', 
+        text: `CHF ${creditAmount.toFixed(2)} loaded successfully! New balance: CHF ${newBalance.toFixed(2)}` 
+      })
+      
+      await loadData()
+      
+      setTimeout(() => {
+        setView('home')
+        setPurchaseMessage(null)
+      }, 2000)
+    } catch (error) {
+      console.error('Error loading credits:', error)
+      setPurchaseMessage({ type: 'error', text: error.message || 'Failed to load credits' })
+    } finally {
+      setPurchasing(false)
+    }
+  }
+
+  const handleTransferTicket = async (ticket) => {
+    setPurchasing(true)
+    setPurchaseMessage(null)
+
+    try {
+      // Simulate NFC transfer
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Get the physical card ID (for demo, we'll use a different card)
+      const physicalCardId = selectedCardId === DEMO_CARD_IDS.USER_1 
+        ? DEMO_CARD_IDS.USER_2 
+        : DEMO_CARD_IDS.USER_1
+      
+      // Create a copy of the ticket for the physical card
+      const transferredTicket = {
+        ...ticket,
+        cardId: physicalCardId,
+        ticketId: generateToken(), // New ticket ID for the physical card
+      }
+      
+      // Save ticket to physical card
+      await saveUserTicket(transferredTicket)
+      
+      setPurchaseMessage({ 
+        type: 'success', 
+        text: `Ticket transferred to physical card successfully!` 
+      })
+      
+      await loadData()
+      
+      setTimeout(() => {
+        setView('home')
+        setPurchaseMessage(null)
+      }, 2000)
+    } catch (error) {
+      console.error('Error transferring ticket:', error)
+      setPurchaseMessage({ type: 'error', text: error.message || 'Failed to transfer ticket' })
+    } finally {
+      setPurchasing(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Card Type Selector */}
       <div className="bg-white rounded-lg shadow-lg p-6">
-        <h1 className="text-3xl font-bold text-gray-800 mb-4">📱 User Device</h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-4">📱 My Device</h1>
         
-        {/* Device Type Selector */}
-        <div className="mb-4">
-          <label className="block text-sm font-semibold text-gray-700 mb-2">
-            Device Type:
+        {/* Card Type Selector */}
+        <div className="mb-6">
+          <label className="block text-sm font-semibold text-gray-700 mb-3">
+            Select Card Type:
           </label>
-          <div className="flex gap-4">
-            <label className="flex items-center">
-              <input
-                type="radio"
-                value="phone"
-                checked={deviceType === 'phone'}
-                onChange={(e) => {
-                  setDeviceType(e.target.value)
-                  setShowPurchaseForm(false) // Close form when switching
-                }}
-                className="mr-2"
-              />
-              <span className="text-lg">📱 Phone (Can buy tickets)</span>
-            </label>
-            <label className="flex items-center">
-              <input
-                type="radio"
-                value="card"
-                checked={deviceType === 'card'}
-                onChange={(e) => {
-                  setDeviceType(e.target.value)
-                  setShowPurchaseForm(false) // Close form when switching
-                }}
-                className="mr-2"
-              />
-              <span className="text-lg">💳 Card (Use kiosk)</span>
-            </label>
+          <div className="grid grid-cols-2 gap-4">
+            <button
+              onClick={() => {
+                setCardType('virtual')
+                setSelectedCardId(DEMO_CARD_IDS.USER_1)
+                setView('home')
+              }}
+              className={`p-4 rounded-lg border-2 transition-all ${
+                cardType === 'virtual'
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-300 bg-white hover:border-gray-400'
+              }`}
+            >
+              <div className="text-4xl mb-2">📱</div>
+              <div className="font-semibold">Virtual Card</div>
+              <div className="text-xs text-gray-600">Phone's Secure Element</div>
+              <div className="text-xs text-gray-500 font-mono mt-1">UID: ...ABC123</div>
+            </button>
+            <button
+              onClick={() => {
+                setCardType('physical')
+                setSelectedCardId(DEMO_CARD_IDS.USER_2)
+                setView('home')
+              }}
+              className={`p-4 rounded-lg border-2 transition-all ${
+                cardType === 'physical'
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-300 bg-white hover:border-gray-400'
+              }`}
+            >
+              <div className="text-4xl mb-2">💳</div>
+              <div className="font-semibold">Physical Card</div>
+              <div className="text-xs text-gray-600">DESFire Smart Card</div>
+              <div className="text-xs text-gray-500 font-mono mt-1">UID: ...DEF456</div>
+            </button>
           </div>
         </div>
 
@@ -293,47 +384,148 @@ export default function UserDeviceTab({ validatorTime }) {
           </select>
         </div>
 
-        {/* Card Balance Summary */}
-        <div className="bg-gradient-to-br from-green-50 to-emerald-100 rounded-lg p-6 border-2 border-green-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 mb-1">Card Balance</p>
-              <p className="text-4xl font-bold text-green-600">CHF {balance.toFixed(2)}</p>
-              <p className="text-xs text-gray-500 mt-2">
-                Available for ticket purchases
-              </p>
+        {/* Balance Display - Virtual Card Only */}
+        {cardType === 'virtual' && (
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-100 rounded-lg p-6 border-2 border-blue-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Phone Balance</p>
+                <p className="text-4xl font-bold text-blue-600">CHF {balance.toFixed(2)}</p>
+                <p className="text-xs text-gray-500 mt-2">
+                  Available credits
+                </p>
+              </div>
+              <div className="text-6xl">📱</div>
             </div>
-            <div className="text-6xl">💳</div>
-          </div>
-        </div>
-
-        {/* Buy Ticket Button - Only for phones */}
-        {deviceType === 'phone' && (
-          <div className="mt-4">
-            <button
-              onClick={() => setShowPurchaseForm(!showPurchaseForm)}
-              className="w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center justify-center gap-2"
-            >
-              {showPurchaseForm ? '✕ Cancel' : '🎫 Buy Ticket'}
-            </button>
           </div>
         )}
 
-        {/* Card message - Only for cards */}
-        {deviceType === 'card' && (
-          <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <p className="text-sm text-yellow-800">
-              <span className="font-semibold">💳 Card Device:</span> This device cannot purchase tickets directly. 
-              Please visit a <span className="font-semibold">🏪 Kiosk</span> to purchase tickets.
-            </p>
+        {/* Physical Card Info */}
+        {cardType === 'physical' && (
+          <div className="bg-gradient-to-br from-green-50 to-emerald-100 rounded-lg p-6 border-2 border-green-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Physical DESFire Card</p>
+                <p className="text-2xl font-bold text-green-600">Tickets Only</p>
+                <p className="text-xs text-gray-500 mt-2">
+                  Load tickets from mobile app via NFC
+                </p>
+              </div>
+              <div className="text-6xl">�</div>
+            </div>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        {view === 'home' && (
+          <div className="mt-4 grid grid-cols-1 gap-3">
+            {cardType === 'virtual' ? (
+              <>
+                <button
+                  onClick={() => setView('load-credits')}
+                  className="px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  💰 Buy Credits
+                </button>
+                <button
+                  onClick={() => setView('buy-ticket')}
+                  className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  🎫 Buy Ticket (Store on Phone)
+                </button>
+                <button
+                  onClick={() => setView('transfer-ticket')}
+                  className="px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  📤 Load Ticket to Physical Card
+                </button>
+              </>
+            ) : (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p className="text-sm text-yellow-800">
+                  <span className="font-semibold">💳 Physical Card:</span> This card stores tickets only (no credits).
+                  Use the Virtual Card (📱) to load credits, buy tickets, and transfer them to this physical card via NFC.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {view !== 'home' && (
+          <div className="mt-4">
+            <button
+              onClick={() => {
+                setView('home')
+                setPurchaseMessage(null)
+              }}
+              className="px-4 py-2 text-gray-600 hover:text-gray-800 flex items-center gap-2"
+            >
+              ← Back
+            </button>
           </div>
         )}
       </div>
 
-      {/* Purchase Ticket Form - Only for phones */}
-      {deviceType === 'phone' && showPurchaseForm && (
+      {/* Buy Credits View */}
+      {view === 'load-credits' && (
+        <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-green-200">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">💰 Buy Credits</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Purchase credits for your phone (pay with credit card/payment app)
+          </p>
+          
+          <div className="space-y-4">
+            {/* Credit Amount */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Credit Amount
+              </label>
+              <select
+                value={creditAmount}
+                onChange={(e) => setCreditAmount(Number(e.target.value))}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value={20}>CHF 20</option>
+                <option value={50}>CHF 50</option>
+                <option value={100}>CHF 100</option>
+                <option value={200}>CHF 200</option>
+              </select>
+            </div>
+
+            {/* Message Display */}
+            {purchaseMessage && (
+              <div className={`p-4 rounded-lg ${
+                purchaseMessage.type === 'success' 
+                  ? 'bg-green-100 border border-green-400 text-green-700' 
+                  : 'bg-red-100 border border-red-400 text-red-700'
+              }`}>
+                {purchaseMessage.text}
+              </div>
+            )}
+
+            {/* Buy Button */}
+            <button
+              onClick={handleLoadCredits}
+              disabled={purchasing}
+              className="w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {purchasing ? (
+                <span className="flex items-center justify-center">
+                  <span className="animate-spin mr-2">⚙️</span>
+                  Processing Payment...
+                </span>
+              ) : (
+                `Buy CHF ${creditAmount.toFixed(2)}`
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Buy Ticket View */}
+      {view === 'buy-ticket' && (
         <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-blue-200">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Purchase Ticket</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-4">🎫 Buy Ticket</h2>
           
           <div className="space-y-4">
             {/* Ticket Type */}
@@ -426,8 +618,60 @@ export default function UserDeviceTab({ validatorTime }) {
         </div>
       )}
 
+      {/* Transfer Ticket View */}
+      {view === 'transfer-ticket' && cardType === 'virtual' && (
+        <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-purple-200">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">📤 Transfer Ticket to Physical Card</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Select a ticket to transfer to a physical DESFire card via NFC
+          </p>
+          
+          {validTickets.length > 0 ? (
+            <div className="space-y-3">
+              {purchaseMessage && (
+                <div className={`p-4 rounded-lg ${
+                  purchaseMessage.type === 'success' 
+                    ? 'bg-green-100 border border-green-400 text-green-700' 
+                    : 'bg-red-100 border border-red-400 text-red-700'
+                }`}>
+                  {purchaseMessage.text}
+                </div>
+              )}
+              {validTickets.map((ticket) => (
+                <button
+                  key={ticket.ticketId}
+                  onClick={() => handleTransferTicket(ticket)}
+                  disabled={purchasing}
+                  className="w-full text-left p-4 border-2 border-purple-200 rounded-lg hover:border-purple-400 hover:bg-purple-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold">{ticket.ticketType === 'day' ? 'Day Pass' : 'Single Journey'}</p>
+                      <p className="text-sm text-gray-600">{ticket.route} • Class {ticket.class}</p>
+                      <p className="text-xs text-gray-500 mt-1">Valid until: {formatDate(ticket.validUntil)}</p>
+                    </div>
+                    <div className="text-2xl">{purchasing ? '⚙️' : '📤'}</div>
+                  </div>
+                </button>
+              ))}
+              <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <p className="text-sm text-purple-800">
+                  <span className="font-semibold">💡 Tip:</span> Tap your phone to the physical card to transfer the ticket via NFC.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <div className="text-4xl mb-2">📭</div>
+              <p className="text-gray-600">No tickets available to transfer</p>
+              <p className="text-sm text-gray-500 mt-1">Buy a ticket first</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Valid Tickets */}
-      {validTickets.length > 0 && (
+      {view === 'home' && validTickets.length > 0 && (
         <div className="bg-white rounded-lg shadow-lg p-6">
           <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
             <span>✅</span> Valid Tickets ({validTickets.length})
@@ -483,7 +727,7 @@ export default function UserDeviceTab({ validatorTime }) {
       )}
 
       {/* Expired Tickets */}
-      {expiredTickets.length > 0 && (
+      {view === 'home' && expiredTickets.length > 0 && (
         <div className="bg-white rounded-lg shadow-lg p-6">
           <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
             <span>❌</span> Expired Tickets ({expiredTickets.length})
@@ -526,7 +770,7 @@ export default function UserDeviceTab({ validatorTime }) {
       )}
 
       {/* Usage Tokens (for daily tickets) */}
-      {usageTokens.length > 0 && (
+      {view === 'home' && usageTokens.length > 0 && (
         <div className="bg-white rounded-lg shadow-lg p-6">
           <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
             <span>🔖</span> Usage Tokens ({usageTokens.length})
@@ -560,12 +804,12 @@ export default function UserDeviceTab({ validatorTime }) {
       )}
 
       {/* No Tickets Message */}
-      {tickets.length === 0 && (
+      {view === 'home' && tickets.length === 0 && (
         <div className="bg-white rounded-lg shadow-lg p-8 text-center">
           <div className="text-6xl mb-4">🎫</div>
-          <p className="text-lg text-gray-600 mb-2">No tickets on this card</p>
+          <p className="text-lg text-gray-600 mb-2">No tickets on this {cardType === 'virtual' ? 'phone' : 'card'}</p>
           <p className="text-sm text-gray-500">
-            Use your tokens at the Kiosk to purchase tickets
+            Load credits and buy tickets to get started
           </p>
         </div>
       )}
@@ -602,13 +846,18 @@ export default function UserDeviceTab({ validatorTime }) {
       </div>
 
       {/* Card Info Summary */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-bold text-gray-800 mb-4">📋 Card Summary</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-green-50 rounded-lg p-4 text-center">
-            <p className="text-2xl font-bold text-green-600">CHF {balance}</p>
-            <p className="text-sm text-gray-600">Card Balance</p>
-          </div>
+      {view === 'home' && (
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">
+            {cardType === 'virtual' ? '📱' : '�'} {cardType === 'virtual' ? 'Virtual' : 'Physical'} Card Summary
+          </h2>
+        <div className={`grid grid-cols-1 gap-4 ${cardType === 'virtual' ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+          {cardType === 'virtual' && (
+            <div className="bg-blue-50 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-blue-600">CHF {balance.toFixed(2)}</p>
+              <p className="text-sm text-gray-600">Credits</p>
+            </div>
+          )}
           <div className="bg-indigo-50 rounded-lg p-4 text-center">
             <p className="text-2xl font-bold text-indigo-600">{validTickets.length}</p>
             <p className="text-sm text-gray-600">Valid Tickets</p>
@@ -619,13 +868,14 @@ export default function UserDeviceTab({ validatorTime }) {
           </div>
         </div>
         
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <p className="text-sm text-gray-600">
-            <span className="font-semibold">Card ID:</span>{' '}
-            <span className="font-mono text-gray-800">{selectedCardId}</span>
-          </p>
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <p className="text-sm text-gray-600">
+              <span className="font-semibold">Card ID:</span>{' '}
+              <span className="font-mono text-gray-800">{selectedCardId}</span>
+            </p>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

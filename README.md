@@ -10,16 +10,18 @@ Replace paper tickets with clone-proof digital tickets on smartphones or refilla
 
 **Solution**: Digital tickets on two platforms:
 
-### 📱 Smartphone App (Free)
+### 📱 Virtual Card (Mobile App - Free)
 - Buy tickets online instantly
-- Store in phone's Secure Element (iOS/Android)
+- Store in phone's Secure Element
 - Validate with NFC tap or QR code
 - Transfer tickets to friends/family
+- Load credits and buy tickets in-app
 
-### 💳 DESFire Card (€5 refillable)
-- For users without smartphones
+### 💳 Physical Card (DESFire - €5)
+- For users without smartphones or who prefer cards
 - Hardware-secured, clone-proof
-- Load credits at kiosk or via Android app NFC
+- Load credits at kiosk or via mobile app NFC
+- Buy and load tickets via mobile app or kiosk
 - Transferable between users
 
 ### ✅ Conductor Validation (Low Cost)
@@ -85,27 +87,29 @@ Backend knows account travel history (for fraud prevention), but conductors rema
 
 ### Buying Tickets
 
-**Option 1: Smartphone App**
+**Option 1: Virtual Card (Mobile App)**
 ```
-1. Download app (iOS/Android) → Create account
-2. Select route + class → Pay online
-3. Ticket stored in Secure Element
-4. Validate: Tap phone (NFC) or show QR to conductor
-```
-
-**Option 2: DESFire Card**
-```
-1. Buy €5 card at kiosk or online
-2. Load credits at kiosk OR via Android app (phone-to-card NFC)
-3. Generate ticket at kiosk or in app
-4. Validate: Tap card to conductor's phone
+1. Download mobile app → Create account
+2. Load credits online (pay once, use multiple times)
+3. Select route + class → Buy ticket using credits
+4. Ticket stored in phone's Secure Element
+5. Validate: Tap phone (NFC) or show QR to conductor
 ```
 
-**Option 3: Hybrid (Low-Cost Deployment)**
+**Option 2: Physical Card (with Mobile App)**
 ```
-1. Buy ticket in Android app
-2. Tap phone to DESFire card → Transfer credits via NFC
-3. Use card for validation
+1. Buy €5 DESFire card at kiosk or online
+2. Download mobile app → Load credits to phone
+3. Select route + class → Buy ticket using credits
+4. Tap phone to card → Transfer ticket via NFC
+5. Validate: Tap card to conductor's phone
+```
+
+**Option 3: Physical Card (kiosk-only)**
+```
+1. Buy €5 DESFire card at kiosk or online
+2. Use kiosk to load credits and buy ticket directly onto card
+3. Validate: Tap card to conductor's phone
 ```
 
 ### Validating Tickets
@@ -306,18 +310,19 @@ validator.pendingSync: Queue({ ticketId, timestamp, location })
 
 ## 🚀 Deployment Options
 
-### Phase 1: Android-Only (€50K)
+### Phase 1: Mobile App + Cards (€50K)
 
 **What's needed:**
-- Android smartphone app (free download for users)
-- DESFire card provisioning station
+- Mobile app (free download for users)
+- DESFire cards (€5 each, sold online or at stations)
 - Conductor smartphones with validation app
 - Backend server (AWS/Azure)
 
 **How it works:**
-1. Users download Android app or buy pre-provisioned DESFire card (€5)
-2. Android users can load credits onto their own cards via phone NFC
+1. Mobile users: Download app → Load credits → Buy tickets (virtual or transfer to physical card via NFC)
+2. Non-smartphone users: Buy pre-loaded cards online (delivered by mail)
 3. Conductors validate using smartphones (no platform barriers needed)
+4. **No kiosks needed** - purely app-based or mail-order cards
 
 **Cost breakdown:**
 - Software development: €30K
@@ -325,17 +330,16 @@ validator.pendingSync: Queue({ ticketId, timestamp, location })
 - Backend infrastructure (1st year): €10K
 - Training materials: €5K
 
-### Phase 2: iOS + Kiosks (€200K)
+### Phase 2: Kiosks for Accessibility (€150K)
 
 **Additional components:**
-- iOS smartphone app
 - Self-service kiosks at major stations
 - Expanded card inventory
 
 **Advantages:**
-- iPhone users can buy tickets in-app
-- Non-smartphone users can use kiosks
+- Non-smartphone users can load credits and buy tickets at kiosks
 - Wider accessibility
+- On-site card provisioning
 
 ### Phase 3: Platform Validators (€500K, Optional)
 

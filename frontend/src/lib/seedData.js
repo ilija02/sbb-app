@@ -85,94 +85,34 @@ export const DEMO_CARD_IDS = {
 }
 
 // User Balances (Backend - cardId -> balance)
-// These balances should match the sum of purchases for each user
+// Simple initial state: User 1 has 50 CHF in credits, User 2 has 0
 export const SEED_USER_BALANCES = [
   {
     cardId: DEMO_CARD_IDS.USER_1,
-    balance: 125, // CHF 125 (from purchases: 50 + 50 + 25)
+    balance: 50, // CHF 50 (ready to buy more tickets)
   },
   {
     cardId: DEMO_CARD_IDS.USER_2,
-    balance: 105, // CHF 105 (from purchases: 75 + 30)
+    balance: 0, // CHF 0 (physical card - no credits)
   },
 ]
 
 // User Tickets - Generated dynamically to ensure unique IDs
-// Each device has: max 3 tickets (1 daily + 2 single tickets)
+// Simple initial state: just one day ticket for demo
 export function getSeedUserTickets(baseTime = Date.now()) {
   const seedKeys = getSeedKeys(baseTime)
   return [
-    // User 1: Daily ticket
+    // User 1: One Day Pass ticket
     {
       ticketId: generateToken(),
       cardId: DEMO_CARD_IDS.USER_1,
       route: 'ZH-BE',
       class: 2,
       validFrom: baseTime - 2 * 60 * 60 * 1000, // 2 hours ago
-      validUntil: seedKeys[1].expiresAt, // Aligned with key expiration
+      validUntil: baseTime + 22 * 60 * 60 * 1000, // Valid for 22 more hours (full day pass)
       ticketType: 'day',
       signature: 'sig_' + generateToken().substring(0, 32),
       keyId: seedKeys[1].keyId, // Signed with second key
-    },
-    // User 1: Single ticket 1
-    {
-      ticketId: generateToken(),
-      cardId: DEMO_CARD_IDS.USER_1,
-      route: 'ZH-BE',
-      class: 2,
-      validFrom: baseTime - 1 * 60 * 60 * 1000, // 1 hour ago
-      validUntil: seedKeys[3].expiresAt, // Aligned with key expiration (newest key)
-      ticketType: 'single',
-      signature: 'sig_' + generateToken().substring(0, 32),
-      keyId: seedKeys[3].keyId, // Signed with newest key
-    },
-    // User 1: Single ticket 2
-    {
-      ticketId: generateToken(),
-      cardId: DEMO_CARD_IDS.USER_1,
-      route: 'ZH-BE',
-      class: 2,
-      validFrom: baseTime - 15 * 60 * 1000, // 15 minutes ago
-      validUntil: seedKeys[2].expiresAt, // Aligned with key expiration
-      ticketType: 'single',
-      signature: 'sig_' + generateToken().substring(0, 32),
-      keyId: seedKeys[2].keyId, // Signed with third key
-    },
-    // User 2: Daily ticket
-    {
-      ticketId: generateToken(),
-      cardId: DEMO_CARD_IDS.USER_2,
-      route: 'BE-ZH',
-      class: 1,
-      validFrom: baseTime - 3 * 60 * 60 * 1000, // 3 hours ago
-      validUntil: baseTime + 21 * 60 * 60 * 1000, // Valid for 21 more hours (day pass)
-      ticketType: 'day',
-      signature: 'sig_' + generateToken().substring(0, 32),
-      keyId: seedKeys[0].keyId, // Signed with first key
-    },
-    // User 2: Single ticket 1
-    {
-      ticketId: generateToken(),
-      cardId: DEMO_CARD_IDS.USER_2,
-      route: 'BE-ZH',
-      class: 1,
-      validFrom: baseTime - 30 * 60 * 1000, // 30 minutes ago
-      validUntil: seedKeys[2].expiresAt, // Aligned with key expiration
-      ticketType: 'single',
-      signature: 'sig_' + generateToken().substring(0, 32),
-      keyId: seedKeys[2].keyId, // Signed with third key
-    },
-    // User 2: Single ticket 2
-    {
-      ticketId: generateToken(),
-      cardId: DEMO_CARD_IDS.USER_2,
-      route: 'BE-ZH',
-      class: 1,
-      validFrom: baseTime - 10 * 60 * 1000, // 10 minutes ago
-      validUntil: seedKeys[3].expiresAt, // Aligned with key expiration (newest key)
-      ticketType: 'single',
-      signature: 'sig_' + generateToken().substring(0, 32),
-      keyId: seedKeys[3].keyId, // Signed with newest key
     },
   ]
 }
@@ -200,40 +140,14 @@ export function getSeedInvalidatedTickets(baseTime = Date.now()) {
   ]
 }
 
-// Token Purchases (Backend records) - 5 total purchases
-// These purchases should add up to the balances in SEED_USER_BALANCES
-// User 1 (CARD_001_ABC123): 50 + 50 + 25 = 125 CHF
-// User 2 (CARD_002_DEF456): 75 + 30 = 105 CHF
+// Token Purchases (Backend records) - Simple initial state
+// User 1 bought CHF 75 total (spent 25 on day pass, has 50 remaining)
 export const SEED_TOKEN_PURCHASES = [
   {
     accountId: 'account_user_001', // Private account ID (not card UID!) - corresponds to USER_1
-    amount: 50,
-    paymentMethod: 'cash',
-    timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000, // 5 days ago
-  },
-  {
-    accountId: 'account_user_001',
-    amount: 50,
-    paymentMethod: 'credit_card',
-    timestamp: Date.now() - 2 * 24 * 60 * 60 * 1000, // 2 days ago
-  },
-  {
-    accountId: 'account_user_002', // Private account ID - corresponds to USER_2
     amount: 75,
-    paymentMethod: 'twint',
-    timestamp: Date.now() - 4 * 24 * 60 * 60 * 1000, // 4 days ago
-  },
-  {
-    accountId: 'account_user_001',
-    amount: 25,
-    paymentMethod: 'cash',
-    timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000, // 3 days ago
-  },
-  {
-    accountId: 'account_user_002',
-    amount: 30,
     paymentMethod: 'credit_card',
-    timestamp: Date.now() - 1 * 24 * 60 * 60 * 1000, // 1 day ago
+    timestamp: Date.now() - 3 * 60 * 60 * 1000, // 3 hours ago
   },
 ]
 

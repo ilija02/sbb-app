@@ -2,12 +2,11 @@ import { useState, useEffect } from 'react'
 import BackendTab from './components/BackendTab'
 import ValidatorTab from './components/ValidatorTab'
 import UserDeviceTab from './components/UserDeviceTab'
-import KioskTab from './components/KioskTab'
 import { initializeSeedData, hasSeedData } from './lib/seedData'
 import { broadcastValidatorTime, subscribeToValidatorTime, clearAllData, setRestarting } from './lib/storage'
 
 function App() {
-  const [activeTab, setActiveTab] = useState('kiosk')
+  const [activeTab, setActiveTab] = useState('user')
   const [initialized, setInitialized] = useState(false)
   const [validatorTime, setValidatorTime] = useState(Date.now()) // Global validator time (can be adjusted)
   const [isPlaying, setIsPlaying] = useState(false) // Auto-advance time state
@@ -75,13 +74,12 @@ function App() {
   }, [])
 
   const tabs = [
-    { id: 'kiosk', name: '🏪 Kiosk', component: KioskTab },
-    { id: 'user', name: '📱 User Device', component: UserDeviceTab },
-    { id: 'validator', name: '🎫 Validator', component: ValidatorTab },
+    { id: 'user', name: '📱 My Device', component: UserDeviceTab },
+    { id: 'validator', name: '✅ Validator', component: ValidatorTab },
     { id: 'backend', name: '🖥️ Backend', component: BackendTab },
   ]
 
-  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || KioskTab
+  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || UserDeviceTab
 
   const formatValidatorTime = () => {
     return new Date(validatorTime).toLocaleString()

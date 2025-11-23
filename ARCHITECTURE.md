@@ -42,10 +42,12 @@ Complete technical specification for a digital ticketing system using DESFire sm
 ### Deployment Options
 
 **Phase 1: Android-Only (€50K)**
-- Android app for in-app purchases and phone-to-card NFC credit transfer
-- Pre-provisioned DESFire cards (€5 each)
+- Android app for in-app ticket purchases and phone-to-card NFC ticket loading
+- DESFire cards (€5 each, sold at kiosks or online)
+- Pre-loaded cards available via mail order (no Android phone needed)
 - Conductor smartphones with validation app
 - Backend API (AWS/Azure)
+- **No kiosks needed** for Android users
 
 **Phase 2: iOS + Kiosks (€200K)**
 - iOS app with Secure Enclave integration
