@@ -1,43 +1,84 @@
 # System Architecture
 
-Complete technical specification of the privacy-preserving ticketing system.
+Complete technical specification for a digital ticketing system using DESFire smart cards and smartphone validation.
 
 ## Table of Contents
 
 1. [System Overview](#system-overview)
-2. [Core Components](#core-components)
-3. [Token-Based Flow](#token-based-flow)
-4. [Signature Protocol](#signature-protocol)
-5. [Validator Operations](#validator-operations)
-6. [Privacy Model](#privacy-model)
-7. [Storage Schema](#storage-schema)
-8. [Security Considerations](#security-considerations)
+2. [Architecture Diagrams](#architecture-diagrams)
+3. [Use Case Diagrams](#use-case-diagrams)
+4. [Core Components](#core-components)
+5. [Token-Based Flow](#token-based-flow)
+6. [Signature Protocol](#signature-protocol)
+7. [Validator Operations](#validator-operations)
+8. [Privacy Model](#privacy-model)
+9. [Storage Schema](#storage-schema)
+10. [Security Considerations](#security-considerations)
 
 ---
 
 ## System Overview
 
+### Design Philosophy
+
+**Core Value Proposition**: Replace paper tickets with digital proof-of-payment using conductor-only validation (no expensive platform barriers).
+
+**Key Advantages:**
+- ✅ **Low Infrastructure Cost**: Conductors validate using smartphones (no gates/barriers needed)
+- ✅ **Clone-Proof Hardware**: DESFire EV3 cards with challenge-response authentication
+- ✅ **Offline-First**: Validators work without network connectivity
+- ✅ **Privacy-Preserving**: Conductors see route/class but not personal information
+- ✅ **Flexible Deployment**: Three options (smartphone app, DESFire card, hybrid)
+
 ### Architecture Principles
 
-1. **Clone-Proof Hardware**: DESFire EV3 smart cards with challenge-response authentication
-2. **Privacy-Enhanced Design**: Payment method separated from travel, conductor anonymity
-3. **Offline-First**: Validators work without network
-4. **Fraud Prevention**: Hardware-backed keys + duplicate detection + cryptographic signatures
-5. **Automatic Expiration**: Signed expiration timestamps checked during validation
-6. **Scalability**: O(1) validation lookup, automatic cleanup
+1. **Clone-Proof Hardware**: DESFire EV3 smart cards with AES-128 challenge-response
+2. **Conductor Validation**: All validation done by conductors with smartphones (no platform barriers)
+3. **Offline-First**: Validators work without network, sync periodically
+4. **Multi-Layer Security**: Hardware keys + backend signatures + duplicate detection + expiration checks
+5. **Token-Based Privacy**: Payment method separated from travel using generic credits
+6. **Phased Deployment**: Start with Android-only (€50K), expand to iOS + kiosks (€200K), optionally add platform validators (€500K)
 
-### Privacy Reality
+### Deployment Options
+
+**Phase 1: Android-Only (€50K)**
+- Android app for in-app purchases and phone-to-card NFC credit transfer
+- Pre-provisioned DESFire cards (€5 each)
+- Conductor smartphones with validation app
+- Backend API (AWS/Azure)
+
+**Phase 2: iOS + Kiosks (€200K)**
+- iOS app with Secure Enclave integration
+- Self-service kiosks at major stations
+- Expanded card inventory
+
+**Phase 3: Platform Validators (€500K, Optional)**
+- Platform-based NFC readers for high-traffic stations
+- Real-time monitoring dashboards
+- Automated fare enforcement
+
+### Privacy Model
+
 **⚠️ This is NOT full anonymity. Backend can track per-account travel history.**
 
-**What IS private:**
-- ✅ Payment method not linked to specific trips (token layer)
-- ✅ Conductors cannot track individuals (no cardId transmitted)
-- ✅ Delayed location tracking (validator sync)
+**What conductors see:**
+- ✅ Route and travel class (required for verification)
+- ✅ Validity status (valid/expired/already used)
+- ✅ Ticket type (single/day pass)
 
-**What is NOT private:**
-- ❌ Backend knows: Account X bought ticket for route Y
-- ❌ Backend can correlate: Ticket Y validated at location Z
-- ❌ Backend builds per-account travel history
+**What conductors CANNOT see:**
+- ❌ User name or personal information
+- ❌ Payment method used
+- ❌ Token balance remaining
+- ❌ Purchase history or travel patterns
+
+**What backend knows:**
+- Account X purchased tokens (payment info)
+- Account X generated ticket for route Y (travel intent)
+- Ticket Y validated at location Z (delayed sync from validators)
+- Backend CAN build per-account travel history
+
+**Privacy trade-off**: Backend has travel data, but conductors remain anonymous to users (no tracking by individual conductor).
 
 ### System Actors
 
@@ -80,6 +121,390 @@ Complete technical specification of the privacy-preserving ticketing system.
 - Backend: RSA-2048 digital signatures (NOT blind signatures)
 - Hashing: SHA-256
 - Transport: TLS 1.3 with certificate pinning
+
+---
+
+## Architecture Diagrams
+
+### System Architecture
+
+```mermaid
+graph TB
+    subgraph "User Layer"
+        A[DESFire Card<br/>Hardware Key]
+        B[Mobile Phone<br/>Secure Element]
+    end
+    
+    subgraph "Point of Sale"
+        C[Kiosk Terminal<br/>Card Reader/Writer]
+    end
+    
+    subgraph "Validation Layer"
+        D[Platform Validator<br/>Challenge-Response]
+        E[Conductor Scanner<br/>Offline Capable]
+    end
+    
+    subgraph "Backend Services"
+        F[API Gateway<br/>Load Balanced]
+        G[HSM<br/>Key Management]
+        H[(PostgreSQL<br/>Tickets & Accounts)]
+        I[(Redis<br/>Duplicate Cache)]
+    end
+    
+    subgraph "External"
+        J[Payment Gateway<br/>Credit Card/Cash]
+    end
+    
+    A --> C
+    B --> C
+    A --> D
+    B --> D
+    A --> E
+    B --> E
+    C --> F
+    D --> F
+    E --> F
+    F --> G
+    F --> H
+    F --> I
+    C --> J
+    
+    style A fill:#90EE90
+    style B fill:#87CEEB
+    style G fill:#FFB6C1
+    style H fill:#DDA0DD
+    style I fill:#F0E68C
+```
+
+### Component Architecture
+
+```mermaid
+graph LR
+    subgraph "DESFire Card"
+        K1[Secure Element<br/>AES-128 Key]
+        K2[File System<br/>Ticket Data]
+        K3[Crypto Processor<br/>Challenge Handler]
+    end
+    
+    subgraph "Backend"
+        B1[Token Service<br/>Balance Management]
+        B2[Ticket Service<br/>Generation & Signing]
+        B3[Validation Service<br/>Duplicate Detection]
+        B4[HSM Service<br/>RSA Signing]
+    end
+    
+    subgraph "Validator"
+        V1[NFC Reader<br/>Card Communication]
+        V2[Signature Verifier<br/>RSA-2048]
+        V3[Challenge Generator<br/>Random 16 bytes]
+        V4[Local Cache<br/>Used Tickets]
+    end
+    
+    K1 --> K3
+    K2 --> K1
+    B1 --> B2
+    B2 --> B4
+    B3 --> B1
+    V1 --> V2
+    V2 --> V3
+    V3 --> V4
+    
+    style K1 fill:#FFB6C1
+    style B4 fill:#FFB6C1
+    style V4 fill:#F0E68C
+```
+
+### Data Flow Architecture
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant C as DESFire Card
+    participant K as Kiosk
+    participant B as Backend/HSM
+    participant V as Validator
+    participant D as Database
+    
+    Note over U,D: Token Purchase Flow
+    U->>K: Pay CHF 50
+    K->>B: Create token transaction
+    B->>D: Store: Account X +50 CHF
+    B-->>K: Balance updated
+    K-->>U: Receipt
+    
+    Note over U,D: Ticket Generation Flow
+    U->>K: Request ticket (ZH → BE)
+    K->>C: Read card key ID
+    C-->>K: cardKeyId (hash)
+    K->>B: Generate ticket + cardKeyId
+    B->>B: Verify pricing & balance
+    B->>B: Sign ticket (RSA-2048)
+    B->>D: Store purchase record
+    K->>C: Write ticket to card
+    C-->>K: Success
+    K-->>U: Ticket ready
+    
+    Note over U,D: Validation Flow
+    U->>V: Tap card
+    V->>C: Read ticket data
+    C-->>V: Ticket + signature
+    V->>V: Verify backend signature
+    V->>C: Send challenge (16 bytes)
+    C->>C: Compute MAC with key
+    C-->>V: Response MAC
+    V->>V: Verify MAC (authentic card)
+    V->>V: Check duplicate cache
+    V-->>U: Valid / Invalid
+    V->>B: Sync validation (later)
+    B->>D: Record validation
+```
+
+---
+
+## Use Case Diagrams
+
+### Physical NFC Card Use Cases
+
+```mermaid
+graph TB
+    subgraph "Actors"
+        U1[Passenger]
+        K1[Kiosk Operator]
+        C1[Conductor]
+        S1[System Admin]
+    end
+    
+    subgraph "Card Lifecycle"
+        UC1[Purchase Card]
+        UC2[Provision DESFire Key]
+        UC3[Load Tokens]
+        UC4[Generate Ticket]
+        UC5[Validate at Platform]
+        UC6[Conductor Check]
+        UC7[Report Lost/Stolen]
+        UC8[Block Card]
+    end
+    
+    U1 --> UC1
+    K1 --> UC2
+    U1 --> UC3
+    U1 --> UC4
+    U1 --> UC5
+    C1 --> UC6
+    U1 --> UC7
+    S1 --> UC8
+    
+    UC1 --> UC2
+    UC2 --> UC3
+    UC3 --> UC4
+    UC4 --> UC5
+    UC5 --> UC6
+    UC7 --> UC8
+    
+    style UC1 fill:#90EE90
+    style UC2 fill:#FFB6C1
+    style UC4 fill:#87CEEB
+    style UC5 fill:#F0E68C
+```
+
+### Detailed Physical Card Use Cases
+
+```mermaid
+graph LR
+    subgraph "UC1: Purchase & Provision Card"
+        A1[User pays CHF 5]
+        A2[Kiosk dispenses card]
+        A3[Generate unique AES key]
+        A4[Write key to card]
+        A5[Store keyID in backend]
+        A6[Card activated]
+    end
+    
+    subgraph "UC2: Load Tokens"
+        B1[User selects amount]
+        B2[Payment processed]
+        B3[Backend credits account]
+        B4[Kiosk displays balance]
+    end
+    
+    subgraph "UC3: Generate Ticket"
+        C1[User selects route]
+        C2[Kiosk reads cardKeyId]
+        C3[Backend creates ticket]
+        C4[Backend signs ticket]
+        C5[Kiosk writes to card]
+        C6[Deduct tokens]
+    end
+    
+    subgraph "UC4: Platform Validation"
+        D1[User taps card]
+        D2[Read ticket data]
+        D3[Verify backend signature]
+        D4[Send challenge]
+        D5[Card responds with MAC]
+        D6[Verify authentic]
+        D7[Check duplicate]
+        D8[Accept/Reject]
+    end
+    
+    A1-->A2-->A3-->A4-->A5-->A6
+    B1-->B2-->B3-->B4
+    C1-->C2-->C3-->C4-->C5-->C6
+    D1-->D2-->D3-->D4-->D5-->D6-->D7-->D8
+```
+
+### Mobile Phone Use Cases
+
+```mermaid
+graph TB
+    subgraph "Actors"
+        U2[Passenger]
+        A2[App User]
+        C2[Conductor]
+        S2[System Admin]
+    end
+    
+    subgraph "Mobile Lifecycle"
+        MC1[Install App]
+        MC2[Create Account]
+        MC3[Provision Secure Element]
+        MC4[Link Payment Method]
+        MC5[Load Tokens]
+        MC6[Generate Ticket]
+        MC7[Store in Wallet]
+        MC8[NFC Validation]
+        MC9[Conductor Scan QR]
+        MC10[Cloud Sync]
+    end
+    
+    U2 --> MC1
+    A2 --> MC2
+    A2 --> MC3
+    A2 --> MC4
+    A2 --> MC5
+    A2 --> MC6
+    A2 --> MC7
+    U2 --> MC8
+    C2 --> MC9
+    S2 --> MC10
+    
+    MC1 --> MC2
+    MC2 --> MC3
+    MC3 --> MC4
+    MC4 --> MC5
+    MC5 --> MC6
+    MC6 --> MC7
+    MC7 --> MC8
+    MC7 --> MC9
+    MC8 --> MC10
+    
+    style MC3 fill:#FFB6C1
+    style MC6 fill:#87CEEB
+    style MC8 fill:#F0E68C
+    style MC9 fill:#DDA0DD
+```
+
+### Detailed Mobile Phone Use Cases
+
+```mermaid
+graph LR
+    subgraph "UC5: Mobile Onboarding"
+        M1[Download app]
+        M2[Register account]
+        M3[Verify email/phone]
+        M4[Generate SE key]
+        M5[Provision key to SE]
+        M6[Store keyID remotely]
+        M7[Enable NFC]
+    end
+    
+    subgraph "UC6: In-App Purchase"
+        N1[Select route in app]
+        N2[Check token balance]
+        N3[Request ticket from API]
+        N4[Backend signs ticket]
+        N5[Store in app + SE]
+        N6[Add to Apple/Google Wallet]
+    end
+    
+    subgraph "UC7: NFC Validation"
+        O1[Phone near reader]
+        O2[NFC-HCE activated]
+        O3[Validator reads ticket]
+        O4[Challenge-response via SE]
+        O5[Validator verifies]
+        O6[Display result]
+        O7[App updates status]
+    end
+    
+    subgraph "UC8: QR Code Fallback"
+        P1[Open app]
+        P2[Display rotating QR]
+        P3[Conductor scans]
+        P4[Backend verifies online]
+        P5[Validation recorded]
+    end
+    
+    M1-->M2-->M3-->M4-->M5-->M6-->M7
+    N1-->N2-->N3-->N4-->N5-->N6
+    O1-->O2-->O3-->O4-->O5-->O6-->O7
+    P1-->P2-->P3-->P4-->P5
+```
+
+### Security Use Cases
+
+```mermaid
+graph TB
+    subgraph "Threat Scenarios"
+        T1[Clone Attempt]
+        T2[Replay Attack]
+        T3[Ticket Forgery]
+        T4[Double Spend]
+        T5[Physical Tamper]
+    end
+    
+    subgraph "Defense Mechanisms"
+        D1[Challenge-Response Fails]
+        D2[Random Challenge Blocks]
+        D3[Signature Invalid]
+        D4[Duplicate Detection]
+        D5[Key Erasure]
+    end
+    
+    subgraph "System Response"
+        R1[Reject Validation]
+        R2[Alert Backend]
+        R3[Flag Account]
+        R4[Security Audit]
+    end
+    
+    T1 --> D1
+    T2 --> D2
+    T3 --> D3
+    T4 --> D4
+    T5 --> D5
+    
+    D1 --> R1
+    D2 --> R1
+    D3 --> R1
+    D4 --> R1
+    D5 --> R1
+    
+    R1 --> R2
+    R2 --> R3
+    R3 --> R4
+    
+    style T1 fill:#FF6B6B
+    style T2 fill:#FF6B6B
+    style T3 fill:#FF6B6B
+    style T4 fill:#FF6B6B
+    style T5 fill:#FF6B6B
+    style D1 fill:#90EE90
+    style D2 fill:#90EE90
+    style D3 fill:#90EE90
+    style D4 fill:#90EE90
+    style D5 fill:#90EE90
+```
 
 ---
 
@@ -891,6 +1316,342 @@ metrics = {
   'validators.offline.duration': gauge
 };
 ```
+
+---
+
+## Detailed Use Case Specifications
+
+### Physical NFC Card Use Cases
+
+#### UC1: Purchase and Provision DESFire Card
+
+**Actor**: Passenger, Kiosk Terminal  
+**Preconditions**: None  
+**Postconditions**: Card activated with unique hardware key
+
+**Main Flow**:
+1. Passenger pays CHF 5 card deposit at kiosk
+2. Kiosk dispenses blank DESFire EV3 card
+3. Backend generates random AES-128 key
+4. Kiosk writes key to card's secure element (key slot 1)
+5. Backend stores hash(key) as cardKeyId
+6. Backend deletes original key from memory
+7. Card is now provisioned and ready for token loading
+
+**Alternative Flows**:
+- A1: Card write fails → Retry or replace card
+- A2: Backend key generation fails → Abort, refund payment
+
+**Security Considerations**:
+- Key written only once, cannot be overwritten
+- Backend never stores actual key, only hash
+- Card's secure element prevents key extraction
+
+---
+
+#### UC2: Load Tokens to Account
+
+**Actor**: Passenger, Kiosk Terminal  
+**Preconditions**: Card provisioned  
+**Postconditions**: Account balance increased
+
+**Main Flow**:
+1. Passenger inserts card into kiosk
+2. Kiosk reads cardKeyId from card
+3. Passenger selects amount (e.g., CHF 50)
+4. Passenger pays via credit card/cash
+5. Payment gateway processes transaction
+6. Backend credits account linked to cardKeyId
+7. Kiosk displays updated balance
+
+**Alternative Flows**:
+- A1: Payment declined → Display error, no balance change
+- A2: Card read error → Retry or use different card
+- A3: Backend offline → Queue transaction, process later
+
+**Business Rules**:
+- Minimum: CHF 10
+- Maximum: CHF 500 per transaction
+- Tokens valid indefinitely (no expiration)
+
+---
+
+#### UC3: Generate Ticket from Tokens
+
+**Actor**: Passenger, Kiosk Terminal  
+**Preconditions**: Sufficient token balance  
+**Postconditions**: Ticket written to card, balance deducted
+
+**Main Flow**:
+1. Passenger inserts card
+2. Kiosk reads cardKeyId
+3. Kiosk displays available balance
+4. Passenger selects route (e.g., "Zürich → Bern")
+5. Passenger selects class (1st or 2nd)
+6. Passenger selects type (single, day pass)
+7. Backend calculates price
+8. Backend verifies balance >= price
+9. Backend creates ticket structure with cardKeyId reference
+10. Backend signs ticket with RSA private key (HSM)
+11. Backend deducts price from token balance
+12. Kiosk writes ticket to card file system
+13. Kiosk prints receipt
+
+**Alternative Flows**:
+- A1: Insufficient balance → Display error, prompt to load tokens
+- A2: Card write fails → Retry, refund on permanent failure
+- A3: Backend signing fails → Abort, no balance deducted
+
+**Data Written to Card**:
+```javascript
+{
+  ticketId: 'uuid',
+  route: 'ZH → BE',
+  class: 2,
+  type: 'single',
+  validFrom: timestamp,
+  validUntil: timestamp + 24h,
+  price: 2500,
+  cardKeyId: 'hash_of_key',
+  signature: 'base64...'
+}
+```
+
+---
+
+#### UC4: Validate Ticket at Platform
+
+**Actor**: Passenger, Platform Validator  
+**Preconditions**: Card has valid ticket  
+**Postconditions**: Validation recorded, passenger granted access
+
+**Main Flow**:
+1. Passenger taps card on validator reader
+2. Validator reads ticket from card file system
+3. Validator verifies backend RSA signature
+4. Validator checks expiration (validUntil > now)
+5. Validator generates random 16-byte challenge
+6. Validator sends challenge to card
+7. Card computes MAC using hardware-protected key
+8. Card returns MAC response
+9. Validator verifies MAC matches expected value
+10. Validator checks local duplicate cache
+11. Validator adds ticketId to cache
+12. Validator displays "VALID" (green light)
+13. Validator queues validation for backend sync
+
+**Alternative Flows**:
+- A1: Invalid backend signature → Display "INVALID TICKET"
+- A2: Expired ticket → Display "TICKET EXPIRED"
+- A3: Challenge-response fails → Display "INVALID CARD - CLONE DETECTED"
+- A4: Duplicate detected → Display "ALREADY USED"
+- A5: Card read error → Prompt to retry
+
+**Timing**:
+- Total validation time: < 500ms
+- Challenge-response: ~200ms
+- Signature verification: ~100ms
+
+---
+
+#### UC5: Conductor Random Check
+
+**Actor**: Conductor, Passenger  
+**Preconditions**: Passenger on train  
+**Postconditions**: Compliance verified
+
+**Main Flow**:
+1. Conductor approaches passenger
+2. Passenger presents card
+3. Conductor taps card with handheld scanner
+4. Scanner performs same validation as UC4
+5. Scanner displays ticket details (route, class, validity)
+6. Conductor verifies route matches train
+7. Conductor allows passenger to continue
+
+**Alternative Flows**:
+- A1: No ticket → Issue CHF 100 fine
+- A2: Wrong route → Issue fine or collect fare difference
+- A3: Validation fails → Issue fine, confiscate card
+- A4: Scanner offline → Visual inspection of last validation timestamp
+
+---
+
+### Mobile Phone Use Cases
+
+#### UC6: Mobile App Onboarding
+
+**Actor**: Passenger (App User)  
+**Preconditions**: iOS 13+ or Android 8+ with NFC  
+**Postconditions**: App configured with Secure Element key
+
+**Main Flow**:
+1. User downloads SBB Tickets app
+2. User creates account (email/phone)
+3. User verifies email/SMS code
+4. App requests Secure Element access permission
+5. User grants permission
+6. App generates AES-128 key in Secure Element (iOS Keychain/Android Keystore)
+7. App retrieves key hash (not actual key)
+8. App sends keyID to backend
+9. Backend links keyID to user account
+10. App enables NFC-HCE mode
+
+**Alternative Flows**:
+- A1: Device lacks Secure Element → Offer QR-only mode
+- A2: Permission denied → Explain security benefits, retry
+- A3: Backend registration fails → Retry with exponential backoff
+
+**Security Considerations**:
+- Key generated inside Secure Element, never exported
+- Key protected by device biometrics (Face ID/Fingerprint)
+- Backend stores only hash(key), not actual key
+
+---
+
+#### UC7: In-App Ticket Purchase
+
+**Actor**: Passenger (App User)  
+**Preconditions**: App onboarded, sufficient balance  
+**Postconditions**: Ticket stored in app and wallet
+
+**Main Flow**:
+1. User opens app
+2. User selects route from favorites or search
+3. User selects class and type
+4. App displays price and current balance
+5. User confirms purchase
+6. App authenticates user (biometric/PIN)
+7. App sends request to backend with keyID
+8. Backend creates and signs ticket
+9. Backend deducts balance
+10. App receives ticket
+11. App stores ticket in local database
+12. App adds ticket to Apple Wallet / Google Wallet
+13. App displays ticket with QR code
+
+**Alternative Flows**:
+- A1: Insufficient balance → Prompt to load tokens
+- A2: Network error → Queue purchase for retry
+- A3: Authentication fails → Retry or fallback to password
+
+**Wallet Integration**:
+- Apple Wallet: Pass with NFC payload
+- Google Wallet: Pass with NFC + QR code
+- Ticket appears on lock screen when near validator
+
+---
+
+#### UC8: NFC Validation with Mobile
+
+**Actor**: Passenger, Platform Validator  
+**Preconditions**: Active ticket in wallet  
+**Postconditions**: Validation recorded
+
+**Main Flow**:
+1. Passenger brings phone near validator
+2. Phone activates NFC-HCE (Host Card Emulation)
+3. Validator initiates NFC connection
+4. Validator reads ticket data via NFC
+5. Validator verifies backend signature
+6. Validator checks expiration
+7. Validator sends challenge to phone
+8. Phone routes challenge to Secure Element
+9. Secure Element computes MAC with protected key
+10. Phone sends MAC response to validator
+11. Validator verifies MAC
+12. Validator checks duplicate cache
+13. Validator displays "VALID"
+14. Phone displays success notification
+
+**Alternative Flows**:
+- A1: Phone battery dead → Use physical card backup
+- A2: NFC disabled → Prompt user to enable
+- A3: Challenge-response fails → Display error
+- A4: Wallet locked → Prompt for biometric/PIN
+
+**UX Considerations**:
+- Works without unlocking phone (like Apple Pay)
+- Haptic feedback on success/failure
+- Clear visual indication (green checkmark/red X)
+
+---
+
+#### UC9: QR Code Fallback (Conductor Scan)
+
+**Actor**: Conductor, Passenger  
+**Preconditions**: Mobile ticket active  
+**Postconditions**: Validation recorded
+
+**Main Flow**:
+1. Conductor approaches passenger
+2. Passenger opens app
+3. App displays rotating QR code (refreshes every 30s)
+4. Conductor scans QR with handheld device
+5. Scanner sends QR data to backend (requires network)
+6. Backend verifies ticket signature
+7. Backend checks duplicate database
+8. Backend checks expiration
+9. Backend returns validation result to scanner
+10. Conductor sees ticket details and validity
+
+**Alternative Flows**:
+- A1: No network → Conductor checks visually, logs manually
+- A2: QR scan fails → User increases brightness, retry
+- A3: Ticket invalid → Conductor issues fine
+
+**QR Code Contents**:
+```javascript
+{
+  ticketId: 'uuid',
+  timestamp: now(),
+  signature: 'signed(ticketId + timestamp)',
+  nonce: 'random'  // Prevents screenshot reuse
+}
+```
+
+---
+
+#### UC10: Cloud Backup and Restore
+
+**Actor**: Passenger  
+**Preconditions**: App onboarded  
+**Postconditions**: Tickets synced across devices
+
+**Main Flow**:
+1. User enables cloud backup in settings
+2. App encrypts ticket data with user password
+3. App uploads to cloud (iCloud/Google Drive)
+4. User installs app on new device
+5. User logs in with same account
+6. App downloads encrypted tickets
+7. App decrypts with user password
+8. User re-provisions Secure Element key (new device)
+9. Backend links new keyID to account
+10. Old tickets transferable, new tickets use new key
+
+**Security Considerations**:
+- Tickets encrypted client-side before upload
+- Secure Element key never backed up (hardware-bound)
+- New device requires new key provisioning
+
+---
+
+### Comparison: Physical Card vs Mobile
+
+| Feature                 | DESFire Card       | Mobile App             |
+| ----------------------- | ------------------ | ---------------------- |
+| **Purchase Cost**       | CHF 5 deposit      | Free (app)             |
+| **Onboarding Time**     | 30 seconds         | 2-3 minutes            |
+| **Battery Requirement** | None (passive NFC) | Phone must be charged  |
+| **Validation Speed**    | < 500ms            | < 800ms (HCE overhead) |
+| **Offline Capability**  | Full               | Full (NFC mode)        |
+| **Backup/Recovery**     | Not possible       | Cloud sync             |
+| **Multi-Device**        | Single card only   | Multiple devices       |
+| **Lost/Stolen**         | Must replace card  | Remote deactivation    |
+| **Conductor Fallback**  | Visual check only  | QR code scan           |
+| **Clone Protection**    | Hardware-based     | Hardware-based (SE)    |
+| **User Preference**     | Older demographics | Tech-savvy users       |
 
 ---
 
